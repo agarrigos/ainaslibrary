@@ -2,34 +2,258 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Mi App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Aina's Library</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png.jpg">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-      margin: 0;
-      padding: 24px;
-      background-color: #f5f5f7;
-      color: #1d1d1f;
-      text-align: center;
-    }
-    .card {
-      background: white;
-      padding: 24px;
-      border-radius: 16px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-      margin-top: 40px;
-    }
-  </style>
+  <meta name="theme-color" content="#f7f6f3">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="card">
-    <h1>¡Hola!</h1>
-    <p>Tu aplicación para iPhone ya está funcionando.</p>
+  <!-- Pantalla de carga -->
+  <div class="screen" id="loading-screen">
+    <h1 class="brand">Aina's Library</h1>
   </div>
+
+  <!-- Inicio de sesión -->
+  <div class="screen" id="login-screen" hidden>
+    <form class="login-card" id="login-form">
+      <h1 class="brand">Aina's Library</h1>
+      <p class="muted">Inicia sesión para ver tu biblioteca</p>
+      <label class="field">
+        <span>Email</span>
+        <input type="email" name="email" autocomplete="username" required>
+      </label>
+      <label class="field">
+        <span>Contraseña</span>
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <p class="form-error" id="login-error" hidden></p>
+      <button type="submit" class="btn btn-primary">Entrar</button>
+    </form>
+  </div>
+
+  <div class="app" id="app" hidden>
+    <!-- Cabecera -->
+    <header class="topbar">
+      <h1 class="brand">Aina's Library</h1>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="btn-search" aria-label="Buscar">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
+        </button>
+        <button class="icon-btn" data-goto="profile" aria-label="Perfil">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.5 18.2c1.3-2.2 3.2-3.2 5.5-3.2s4.2 1 5.5 3.2"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Barra de búsqueda (oculta por defecto) -->
+    <div class="search-bar" id="search-bar" hidden>
+      <input type="search" id="search-input" placeholder="Buscar libros o autores…" autocomplete="off">
+    </div>
+
+    <!-- Contenido -->
+    <main class="content">
+      <section class="view is-active" id="view-library" aria-label="Biblioteca">
+        <div class="segmented" id="status-tabs" role="tablist" aria-label="Estado de lectura">
+          <button role="tab" class="segment is-active" data-status="reading">Leyendo <span class="count" data-count="reading">0</span></button>
+          <button role="tab" class="segment" data-status="read">Leídos <span class="count" data-count="read">0</span></button>
+          <button role="tab" class="segment" data-status="pending">Pendientes <span class="count" data-count="pending">0</span></button>
+        </div>
+        <div class="book-grid" id="book-grid"></div>
+        <p class="empty" id="empty-msg" hidden></p>
+        <button class="fab" id="btn-add" aria-label="Añadir libro">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </section>
+
+      <section class="view" id="view-explore" aria-label="Explorar">
+        <div id="catalog"></div>
+        <p class="empty" id="catalog-empty" hidden></p>
+      </section>
+
+      <section class="view" id="view-discover" aria-label="Descubrir">
+        <div class="placeholder">
+          <h2>Descubrir</h2>
+          <p>Próximamente: recomendaciones y novedades.</p>
+        </div>
+      </section>
+
+      <section class="view" id="view-profile" aria-label="Perfil">
+        <div class="profile">
+          <h2>Perfil</h2>
+          <p class="muted" id="profile-email"></p>
+          <div class="stats">
+            <div class="stat"><strong id="stat-read">0</strong><span>Leídos</span></div>
+            <div class="stat"><strong id="stat-reading">0</strong><span>Leyendo</span></div>
+            <div class="stat"><strong id="stat-pending">0</strong><span>Pendientes</span></div>
+          </div>
+          <label class="toggle">
+            <span>Mostrar la mascota</span>
+            <input type="checkbox" id="pet-toggle" checked>
+          </label>
+          <button class="btn btn-secondary" id="btn-logout">Cerrar sesión</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Mascota -->
+    <div class="pet" id="pet">
+      <div class="pet-bubble" id="pet-bubble" role="status" aria-live="polite" hidden>
+        <p id="pet-text"></p>
+        <button type="button" class="pet-action" id="pet-action" hidden></button>
+      </div>
+      <button type="button" class="pet-dog" id="pet-dog" aria-label="Mascota: toca para que te diga algo">
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <!-- Cachorro negro tumbado, inspirado en el icono de la app -->
+          <g class="pet-tail"><path d="M76 80 Q90 76 90 64" /></g>
+          <ellipse cx="54" cy="80" rx="27" ry="12" class="fur" />
+          <ellipse cx="50" cy="70" rx="17" ry="12" class="fur" />
+          <!-- patas delanteras estiradas -->
+          <path d="M34 74 Q31 86 33 92 Q39 97 45 92 Q45 84 44 76 Z" class="fur leg" />
+          <path d="M56 76 Q55 86 57 92 Q63 97 69 92 Q68 84 66 74 Z" class="fur leg" />
+          <path d="M36.5 93 v-3 M39.5 94 v-3 M42.5 93 v-3 M59.5 93 v-3 M62.5 94 v-3 M65.5 93 v-3" class="toes" />
+          <g class="pet-head">
+            <!-- orejas caídas -->
+            <path d="M34 28 Q21 30 23 48 Q25 57 33 52 Q36 40 38 31 Z" class="ear" />
+            <path d="M66 28 Q79 30 77 48 Q75 57 67 52 Q64 40 62 31 Z" class="ear" />
+            <ellipse cx="50" cy="42" rx="19" ry="19" class="fur" />
+            <ellipse cx="45" cy="31" rx="8" ry="3" class="sheen" />
+            <ellipse cx="50" cy="53" rx="10.5" ry="8.5" class="muzzle" />
+            <g class="pet-eyes">
+              <circle cx="42" cy="41" r="3.3" class="eye" />
+              <circle cx="58" cy="41" r="3.3" class="eye" />
+              <circle cx="42" cy="41.4" r="1.7" class="pupil" />
+              <circle cx="58" cy="41.4" r="1.7" class="pupil" />
+              <circle cx="43" cy="40" r="0.9" class="shine" />
+              <circle cx="59" cy="40" r="0.9" class="shine" />
+            </g>
+            <ellipse cx="50" cy="50" rx="4.6" ry="3.3" class="nose" />
+            <ellipse cx="48.6" cy="49" rx="1.5" ry="0.8" class="shine" />
+            <path d="M50 53.3 v2 M46 56 Q50 59 54 56" class="mouth" />
+            <path d="M48 57.5 Q50 63 52 57.5 Z" class="tongue" />
+          </g>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Menú inferior -->
+    <nav class="tabbar" aria-label="Navegación principal">
+      <button class="tab is-active" data-goto="library">
+        <svg viewBox="0 0 24 24"><path d="M5 4v16M9 4v16"/><path d="M13 5l3.5-1 3.5 15-3.5 1z"/></svg>
+        <span>Biblioteca</span>
+      </button>
+      <button class="tab" data-goto="explore">
+        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>
+        <span>Explorar</span>
+      </button>
+      <button class="tab" data-goto="discover">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>
+        <span>Descubrir</span>
+      </button>
+      <button class="tab" data-goto="profile">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1-3.8 3.8-5.5 7-5.5s6 1.7 7 5.5"/></svg>
+        <span>Perfil</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Formulario de libro (añadir / editar) -->
+  <dialog class="sheet" id="book-dialog">
+    <form id="book-form" method="dialog">
+      <header class="sheet-header">
+        <h2 id="book-dialog-title">Nuevo libro</h2>
+        <button type="button" class="icon-btn" id="btn-close-dialog" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+
+      <label class="field">
+        <span>Título *</span>
+        <input name="title" required maxlength="200">
+      </label>
+      <label class="field">
+        <span>Autor</span>
+        <input name="author" maxlength="200">
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Estado</span>
+          <select name="status">
+            <option value="pending">Pendiente</option>
+            <option value="reading">Leyendo</option>
+            <option value="read">Leído</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Puntuación</span>
+          <select name="rating">
+            <option value="">—</option>
+            <option value="1">★</option>
+            <option value="2">★★</option>
+            <option value="3">★★★</option>
+            <option value="4">★★★★</option>
+            <option value="5">★★★★★</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Fecha en que lo terminó</span>
+        <input type="date" name="finished_at">
+      </label>
+
+      <fieldset class="field">
+        <span>Color de portada</span>
+        <div class="swatches" id="swatches"></div>
+      </fieldset>
+
+      <label class="field">
+        <span>URL de imagen de portada (opcional)</span>
+        <input type="url" name="cover_url" placeholder="https://…">
+      </label>
+
+      <label class="field">
+        <span>Notas</span>
+        <textarea name="notes" rows="4"></textarea>
+      </label>
+
+      <p class="form-error" id="book-error" hidden></p>
+
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-danger" id="btn-delete" hidden>Eliminar</button>
+        <button type="submit" class="btn btn-primary" id="btn-save">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Ficha de un libro de Explorar -->
+  <dialog class="sheet" id="catalog-dialog">
+    <div class="sheet-body">
+      <header class="sheet-header">
+        <span class="muted" id="catalog-dialog-category"></span>
+        <button type="button" class="icon-btn" id="btn-close-catalog" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <div class="catalog-detail">
+        <img id="catalog-dialog-cover" alt="">
+        <h2 id="catalog-dialog-title"></h2>
+        <p class="muted" id="catalog-dialog-author"></p>
+      </div>
+      <p class="form-error" id="catalog-error" hidden></p>
+      <button type="button" class="btn btn-primary" id="btn-add-to-library">Añadir a mi biblioteca</button>
+    </div>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
