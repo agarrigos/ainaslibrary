@@ -9,6 +9,7 @@ App web (PWA) para gestionar una biblioteca personal. Frontend estático (HTML/C
    - [`supabase/schema.sql`](supabase/schema.sql) – tabla `books` (la Biblioteca de Aina)
    - [`supabase/catalog.sql`](supabase/catalog.sql) – tabla `catalog` (los libros de Explorar)
    - [`supabase/seed-dark-romance.sql`](supabase/seed-dark-romance.sql) – libros de Explorar (y cualquier otro `seed-*.sql`)
+   - [`supabase/avatars.sql`](supabase/avatars.sql) – espacio privado para la foto de perfil
 3. **Desactivar registros públicos** (para que solo entre Aina): *Authentication* → *Sign In / Providers* → desactiva *Allow new users to sign up*.
 4. **Crear el usuario de Aina:** *Authentication* → *Users* → *Add user* → *Create new user*. Pon email y contraseña y marca *Auto Confirm User*.
 5. **Conectar la app:** en *Project Settings* → *API* copia la *Project URL* y la clave *anon public* en [`config.js`](config.js).
@@ -26,4 +27,5 @@ Abre `index.html` en el navegador, o usa la extensión *Live Server* de VS Code.
 - `supabase/schema.sql` – tabla `books` (Biblioteca) y reglas de seguridad
 - `supabase/catalog.sql` – tabla `catalog` (Explorar), solo lectura desde la app
 - `supabase/seed-*.sql` – libros de cada categoría para Explorar
+- `supabase/avatars.sql` – almacenamiento privado de la foto de perfil (Supabase Storage)
 - `supabase/mover-a-explorar.sql` – migración de un solo uso (ya no hace falta en instalaciones nuevas)

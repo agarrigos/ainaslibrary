@@ -53,7 +53,7 @@ $('login-form').addEventListener('submit', async (e) => {
 $('btn-logout').addEventListener('click', () => db.auth.signOut());
 
 let currentUserId = null;
-db.auth.onAuthStateChange((_event, session) => {
+db.auth.onAuthStateChange((event, session) => {
   if (!isConfigured) return;
   const userId = session?.user?.id ?? null;
   if (!userId) {
@@ -61,6 +61,9 @@ db.auth.onAuthStateChange((_event, session) => {
     books = [];
     catalog = [];
     petGreeted = false;
+    currentUser = null;
+    setAvatar(null);
+    avatarStatus('');
     showScreen('login');
     return;
   }
@@ -68,10 +71,13 @@ db.auth.onAuthStateChange((_event, session) => {
   showScreen('app');
   if (userId !== currentUserId) {
     currentUserId = userId;
+    // Recién iniciada la sesión (no al reabrir la app con la sesión ya guardada)
+    petIntroPending = event === 'SIGNED_IN';
     // Fuera del callback para no bloquear el cliente de Supabase
     setTimeout(() => {
       loadBooks();
       loadCatalog();
+      loadAvatar(session.user);
     }, 0);
   }
 });
@@ -206,13 +212,17 @@ function renderBooks(list, { searching = false } = {}) {
   // Al buscar se muestran resultados de los tres apartados
   $('status-tabs').classList.toggle('is-searching', searching);
   if (!searching) list = list.filter((b) => b.status === libraryStatus);
+  const beforeFilters = list.length;
+  list = applyPrefs('library', list);
 
   if (list.length === 0) {
     showEmpty(searching
       ? 'No se encontraron libros.'
       : books.length === 0
         ? 'Tu biblioteca está vacía. Añade libros desde Explorar o pulsa +.'
-        : STATUS_EMPTY[libraryStatus]);
+        : beforeFilters > 0
+          ? 'Ningún libro coincide con los filtros.'
+          : STATUS_EMPTY[libraryStatus]);
     return;
   }
   $('empty-msg').hidden = true;
@@ -234,26 +244,31 @@ const openCategories = new Set(); // categorías desplegadas (se mantienen al re
 function renderCatalog() {
   if (!catalogLoaded) return;
   const q = searchInput.value.trim().toLowerCase();
-  const list = q ? catalog.filter((b) => matches(b, q)) : catalog;
+  const found = q ? catalog.filter((b) => matches(b, q)) : catalog;
+  const list = applyPrefs('explore', found);
 
   const wrap = $('catalog');
   wrap.innerHTML = '';
   if (list.length === 0) {
     showCatalogEmpty(catalog.length === 0
       ? 'Todavía no hay libros para explorar.'
-      : 'No se encontraron libros.');
+      : found.length > 0
+        ? 'Ningún libro coincide con los filtros.'
+        : 'No se encontraron libros.');
     return;
   }
   $('catalog-empty').hidden = true;
 
-  // Agrupar por categoría
+  // Agrupar por categoría (el orden dentro de cada una ya viene de applyPrefs)
   const groups = new Map();
   list.forEach((b) => {
     if (!groups.has(b.category)) groups.set(b.category, []);
     groups.get(b.category).push(b);
   });
+  const categories = [...groups.keys()].sort(collator.compare);
 
-  groups.forEach((items, category) => {
+  categories.forEach((category) => {
+    const items = groups.get(category);
     const section = document.createElement('details');
     section.className = 'category';
     // Al buscar se abren todas las categorías con resultados
@@ -496,6 +511,283 @@ $('btn-delete').addEventListener('click', async () => {
   refresh();
 });
 
+// ---------- Foto de perfil ----------
+const AVATAR_BUCKET = 'avatars';
+const AVATAR_SIZE = 512;
+let currentUser = null;
+
+function setAvatar(url) {
+  const img = $('profile-avatar');
+  const header = $('header-avatar');
+  if (url) {
+    img.src = url;
+    header.src = url;
+  } else {
+    img.removeAttribute('src');
+    header.removeAttribute('src');
+  }
+  img.hidden = !url;
+  header.hidden = !url;
+  $('header-avatar-icon').style.display = url ? 'none' : '';
+  $('btn-remove-avatar').hidden = !url;
+  $('avatar-initial').textContent = (currentUser?.email || '?').charAt(0);
+}
+
+function avatarStatus(text, isError = false) {
+  const el = $('avatar-status');
+  el.textContent = text || '';
+  el.hidden = !text;
+  el.classList.toggle('is-error', isError);
+}
+
+async function loadAvatar(user) {
+  currentUser = user;
+  const path = user?.user_metadata?.avatar_path;
+  if (!path) return setAvatar(null);
+  const { data, error } = await db.storage.from(AVATAR_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 7);
+  if (error) {
+    console.error(error);
+    return setAvatar(null);
+  }
+  setAvatar(data.signedUrl);
+}
+
+// Recorta la imagen en cuadrado (centrada), la reduce y la convierte a JPEG.
+// Al redibujarla se pierden los metadatos de la foto (EXIF, ubicación GPS…).
+async function squareJpeg(file) {
+  let source;
+  try {
+    source = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch {
+    source = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  }
+  const w = source.width;
+  const h = source.height;
+  const side = Math.min(w, h);
+  const size = Math.min(AVATAR_SIZE, side);
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  canvas.getContext('2d').drawImage(source, (w - side) / 2, (h - side) / 2, side, side, 0, 0, size, size);
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('No se pudo procesar la imagen'))), 'image/jpeg', 0.85));
+}
+
+$('btn-avatar').addEventListener('click', () => $('avatar-input').click());
+
+$('avatar-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file || !currentUser) return;
+  if (!file.type.startsWith('image/')) return avatarStatus('Ese archivo no es una imagen.', true);
+
+  const btn = $('btn-avatar');
+  btn.classList.add('is-loading');
+  avatarStatus('Subiendo foto…');
+  try {
+    const blob = await squareJpeg(file);
+    const oldPath = currentUser.user_metadata?.avatar_path;
+    // Nombre nuevo cada vez para que el móvil no muestre la foto antigua en caché
+    const path = `${currentUser.id}/avatar-${Date.now()}.jpg`;
+
+    const { error: upErr } = await db.storage.from(AVATAR_BUCKET)
+      .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+    if (upErr) throw upErr;
+
+    const { data, error: userErr } = await db.auth.updateUser({ data: { avatar_path: path } });
+    if (userErr) throw userErr;
+    if (oldPath) db.storage.from(AVATAR_BUCKET).remove([oldPath]); // no hace falta esperar
+
+    await loadAvatar(data.user);
+    avatarStatus('');
+  } catch (err) {
+    console.error(err);
+    avatarStatus('No se pudo subir la foto. Inténtalo de nuevo.', true);
+  } finally {
+    btn.classList.remove('is-loading');
+  }
+});
+
+$('btn-remove-avatar').addEventListener('click', async () => {
+  const path = currentUser?.user_metadata?.avatar_path;
+  if (!path || !confirm('¿Quitar la foto de perfil?')) return;
+  avatarStatus('Quitando foto…');
+  const { data, error } = await db.auth.updateUser({ data: { avatar_path: null } });
+  if (error) {
+    console.error(error);
+    return avatarStatus('No se pudo quitar la foto. Inténtalo de nuevo.', true);
+  }
+  db.storage.from(AVATAR_BUCKET).remove([path]);
+  currentUser = data.user;
+  setAvatar(null);
+  avatarStatus('');
+});
+
+// ---------- Ordenar y filtrar ----------
+// Orden alfabético en español: ignora mayúsculas y acentos, y ordena números de forma natural
+const collator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
+const byText = (key) => (a, b) => collator.compare(a[key] || '', b[key] || '');
+const byTitle = byText('title');
+const thenTitle = (cmp) => (a, b) => cmp(a, b) || byTitle(a, b);
+
+const SORTS = {
+  'title-asc': { label: 'Título (A–Z)', short: 'A–Z', cmp: byTitle },
+  'title-desc': { label: 'Título (Z–A)', short: 'Z–A', cmp: (a, b) => byTitle(b, a) },
+  'author-asc': { label: 'Autor (A–Z)', short: 'Autor', cmp: thenTitle(byText('author')) },
+  'recent': {
+    label: 'Añadidos recientemente', short: 'Recientes',
+    cmp: (a, b) => (b.created_at || '').localeCompare(a.created_at || ''),
+  },
+  'rating': {
+    label: 'Mejor puntuados', short: 'Puntuación',
+    cmp: thenTitle((a, b) => (b.rating || 0) - (a.rating || 0)),
+  },
+  'finished': {
+    label: 'Terminados recientemente', short: 'Terminados',
+    cmp: thenTitle((a, b) => (b.finished_at || '').localeCompare(a.finished_at || '')),
+  },
+};
+
+const VIEW_OPTIONS = {
+  library: {
+    sorts: ['title-asc', 'title-desc', 'author-asc', 'recent', 'rating', 'finished'],
+    defaults: { sort: 'title-asc', minRating: 0, withNotes: false },
+  },
+  explore: {
+    sorts: ['title-asc', 'title-desc', 'author-asc'],
+    defaults: { sort: 'title-asc', hideOwned: false },
+  },
+};
+
+function loadPrefs(view) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(`prefs-${view}`) || '{}');
+    const prefs = { ...VIEW_OPTIONS[view].defaults, ...saved };
+    if (!VIEW_OPTIONS[view].sorts.includes(prefs.sort)) prefs.sort = VIEW_OPTIONS[view].defaults.sort;
+    return prefs;
+  } catch {
+    return { ...VIEW_OPTIONS[view].defaults };
+  }
+}
+const prefs = { library: loadPrefs('library'), explore: loadPrefs('explore') };
+
+function savePrefs(view) {
+  localStorage.setItem(`prefs-${view}`, JSON.stringify(prefs[view]));
+}
+
+function activeFilterCount(view) {
+  const p = prefs[view];
+  return view === 'library'
+    ? (p.minRating > 0 ? 1 : 0) + (p.withNotes ? 1 : 0)
+    : (p.hideOwned ? 1 : 0);
+}
+
+function applyPrefs(view, list) {
+  const p = prefs[view];
+  let out = list;
+  if (view === 'library') {
+    if (p.minRating > 0) out = out.filter((b) => (b.rating || 0) >= p.minRating);
+    if (p.withNotes) out = out.filter((b) => b.notes && b.notes.trim());
+  } else if (p.hideOwned) {
+    out = out.filter((b) => !isInLibrary(b));
+  }
+  return [...out].sort(SORTS[p.sort].cmp);
+}
+
+function updateSortChips() {
+  document.querySelectorAll('[data-sort-view]').forEach((chip) => {
+    const view = chip.dataset.sortView;
+    const n = activeFilterCount(view);
+    chip.querySelector('.chip-label').textContent =
+      `${SORTS[prefs[view].sort].short}${n ? ` · ${n} ${n === 1 ? 'filtro' : 'filtros'}` : ''}`;
+    chip.classList.toggle('has-filters', n > 0);
+    chip.setAttribute('aria-label', `Ordenar y filtrar. Ahora: ${SORTS[prefs[view].sort].label}` +
+      (n ? `, ${n} ${n === 1 ? 'filtro activo' : 'filtros activos'}` : ''));
+  });
+}
+
+const sortDialog = $('sort-dialog');
+let sortView = 'library';
+
+function optionRow(labelText, input) {
+  const label = document.createElement('label');
+  label.className = 'option';
+  const span = document.createElement('span');
+  span.textContent = labelText;
+  label.append(span, input);
+  return label;
+}
+
+function renderSortDialog() {
+  const p = prefs[sortView];
+
+  const sortWrap = $('sort-options');
+  sortWrap.innerHTML = '';
+  VIEW_OPTIONS[sortView].sorts.forEach((key) => {
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = 'sort';
+    input.checked = p.sort === key;
+    input.addEventListener('change', () => { p.sort = key; onPrefsChange(); });
+    sortWrap.appendChild(optionRow(SORTS[key].label, input));
+  });
+
+  const filterWrap = $('filter-options');
+  filterWrap.innerHTML = '';
+  if (sortView === 'library') {
+    const select = document.createElement('select');
+    [['0', 'Todas'], ['3', '★★★ o más'], ['4', '★★★★ o más'], ['5', '★★★★★']].forEach(([v, t]) => {
+      const o = document.createElement('option');
+      o.value = v;
+      o.textContent = t;
+      select.appendChild(o);
+    });
+    select.value = String(p.minRating);
+    select.addEventListener('change', () => { p.minRating = Number(select.value); onPrefsChange(); });
+    filterWrap.appendChild(optionRow('Puntuación', select));
+
+    const notes = document.createElement('input');
+    notes.type = 'checkbox';
+    notes.checked = p.withNotes;
+    notes.addEventListener('change', () => { p.withNotes = notes.checked; onPrefsChange(); });
+    filterWrap.appendChild(optionRow('Solo libros con notas', notes));
+  } else {
+    const hide = document.createElement('input');
+    hide.type = 'checkbox';
+    hide.checked = p.hideOwned;
+    hide.addEventListener('change', () => { p.hideOwned = hide.checked; onPrefsChange(); });
+    filterWrap.appendChild(optionRow('Ocultar los que ya están en mi biblioteca', hide));
+  }
+}
+
+function onPrefsChange() {
+  savePrefs(sortView);
+  updateSortChips();
+  applySearch(); // vuelve a pintar Biblioteca y Explorar
+}
+
+document.querySelectorAll('[data-sort-view]').forEach((chip) => {
+  chip.addEventListener('click', () => {
+    sortView = chip.dataset.sortView;
+    renderSortDialog();
+    sortDialog.showModal();
+  });
+});
+$('btn-close-sort').addEventListener('click', () => sortDialog.close());
+$('btn-done-sort').addEventListener('click', () => sortDialog.close());
+$('btn-reset-sort').addEventListener('click', () => {
+  prefs[sortView] = { ...VIEW_OPTIONS[sortView].defaults };
+  renderSortDialog();
+  onPrefsChange();
+});
+
+updateSortChips();
+
 // ---------- Mascota ----------
 const pet = $('pet');
 const petBubble = $('pet-bubble');
@@ -519,7 +811,7 @@ function petMessages() {
   const read = books.filter((b) => b.status === 'read');
   const pending = books.filter((b) => b.status === 'pending');
   const suggestions = catalog.filter((c) => !isInLibrary(c));
-  const msgs = [{ text: greeting() }, { text: '¡Guau! 🐾' }, { text: 'Me encanta que me leas en voz alta. 🐶' }];
+  const msgs = [{ text: greeting() }, { text: '¡Guau! Soy Jack. 🐾' }, { text: 'Me encanta que me leas en voz alta. 🐶' }];
 
   if (reading.length) {
     const b = pick(reading);
@@ -583,10 +875,15 @@ document.addEventListener('click', (e) => {
   if (!petBubble.hidden && !pet.contains(e.target)) hidePetBubble();
 });
 
+const PET_INTRO = 'Hola, me llamo Jack y seré tu compañero de lectura. 🐾';
+let petIntroPending = false; // true justo después de iniciar sesión
+
 function greetOnce() {
   if (petGreeted || document.body.classList.contains('pet-hidden')) return;
   petGreeted = true;
-  setTimeout(() => petSay({ text: greeting() }), 1200);
+  const text = petIntroPending ? PET_INTRO : greeting();
+  petIntroPending = false;
+  setTimeout(() => petSay({ text }), 1200);
 }
 
 function showLibraryStatus(status) {
