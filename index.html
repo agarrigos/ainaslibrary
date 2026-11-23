@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Aina's Library</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icon.png.jpg">
+  <link rel="apple-touch-icon" href="icon.png.jpg?v=2">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="theme-color" content="#f7f6f3">
@@ -135,33 +135,48 @@
       </div>
       <button type="button" class="pet-dog" id="pet-dog" aria-label="Jack, tu compañero de lectura: tócalo para que te diga algo">
         <svg viewBox="0 0 100 100" aria-hidden="true">
-          <!-- Cachorro negro tumbado, inspirado en el icono de la app -->
-          <g class="pet-tail"><path d="M76 80 Q90 76 90 64" /></g>
-          <ellipse cx="54" cy="80" rx="27" ry="12" class="fur" />
-          <ellipse cx="50" cy="70" rx="17" ry="12" class="fur" />
-          <!-- patas delanteras estiradas -->
-          <path d="M34 74 Q31 86 33 92 Q39 97 45 92 Q45 84 44 76 Z" class="fur leg" />
-          <path d="M56 76 Q55 86 57 92 Q63 97 69 92 Q68 84 66 74 Z" class="fur leg" />
-          <path d="M36.5 93 v-3 M39.5 94 v-3 M42.5 93 v-3 M59.5 93 v-3 M62.5 94 v-3 M65.5 93 v-3" class="toes" />
+          <!-- Jack: cachorro negro sentado leyendo, inspirado en el icono de la app -->
+          <g class="pet-tail"><path d="M66 86 Q80 90 92 82 Q95 86 89 90 Q78 96 66 92 Z" class="fur line" /></g>
+          <!-- cuerpo sentado -->
+          <path d="M31 94 Q24 72 35 58 Q50 49 65 58 Q76 72 69 94 Z" class="fur line" />
+          <ellipse cx="35" cy="85" rx="10" ry="9" class="fur line" />
+          <ellipse cx="65" cy="85" rx="10" ry="9" class="fur line" />
+          <ellipse cx="31" cy="94.5" rx="8.5" ry="3.8" class="fur line" />
+          <ellipse cx="69" cy="94.5" rx="8.5" ry="3.8" class="fur line" />
+          <path d="M27 95 v-2.5 M30.5 96 v-2.5 M34 95.5 v-2.5 M66 95.5 v-2.5 M69.5 96 v-2.5 M73 95 v-2.5" class="toes" />
+          <!-- libro -->
+          <g class="pet-book">
+            <path d="M36 66 L52 70 L52 85 L36 81 Z" class="book-cover" />
+            <path d="M52 70 L64 65 L64 80 L52 85 Z" class="book-cover" />
+            <path d="M37.5 65 L52 68.5 L62.5 64 L62.5 66 L52 70.5 L37.5 67 Z" class="book-pages" />
+            <path d="M40 73 l8 2 M40 76 l8 2 M40 79 l6 1.5" class="book-text" />
+          </g>
+          <!-- patas delanteras sujetando el libro -->
+          <ellipse cx="36.5" cy="74" rx="5" ry="5.5" class="fur line" />
+          <ellipse cx="63.5" cy="72" rx="5" ry="5.5" class="fur line" />
           <g class="pet-head">
             <!-- orejas caídas -->
-            <path d="M34 28 Q21 30 23 48 Q25 57 33 52 Q36 40 38 31 Z" class="ear" />
-            <path d="M66 28 Q79 30 77 48 Q75 57 67 52 Q64 40 62 31 Z" class="ear" />
-            <ellipse cx="50" cy="42" rx="19" ry="19" class="fur" />
-            <ellipse cx="45" cy="31" rx="8" ry="3" class="sheen" />
-            <ellipse cx="50" cy="53" rx="10.5" ry="8.5" class="muzzle" />
+            <path d="M35 22 Q22 22 22 38 Q23 48 31 45 Q33 34 38 27 Z" class="ear line" />
+            <path d="M65 22 Q78 22 78 38 Q77 48 69 45 Q67 34 62 27 Z" class="ear line" />
+            <ellipse cx="50" cy="35" rx="18" ry="17" class="fur line" />
+            <ellipse cx="50" cy="45" rx="10" ry="7.5" class="muzzle" />
+            <path d="M39 28.5 q3 -2 6 0 M55 28.5 q3 -2 6 0" class="brow" />
             <g class="pet-eyes">
-              <circle cx="42" cy="41" r="3.3" class="eye" />
-              <circle cx="58" cy="41" r="3.3" class="eye" />
-              <circle cx="42" cy="41.4" r="1.7" class="pupil" />
-              <circle cx="58" cy="41.4" r="1.7" class="pupil" />
-              <circle cx="43" cy="40" r="0.9" class="shine" />
-              <circle cx="59" cy="40" r="0.9" class="shine" />
+              <ellipse cx="42.5" cy="34" rx="3.2" ry="2.8" class="eye-white" />
+              <ellipse cx="57.5" cy="34" rx="3.2" ry="2.8" class="eye-white" />
+              <circle cx="42.8" cy="35" r="2.1" class="eye" />
+              <circle cx="57.8" cy="35" r="2.1" class="eye" />
+              <circle cx="42.9" cy="35.3" r="1.1" class="pupil" />
+              <circle cx="57.9" cy="35.3" r="1.1" class="pupil" />
+              <circle cx="43.6" cy="34.3" r="0.6" class="shine" />
+              <circle cx="58.6" cy="34.3" r="0.6" class="shine" />
             </g>
-            <ellipse cx="50" cy="50" rx="4.6" ry="3.3" class="nose" />
-            <ellipse cx="48.6" cy="49" rx="1.5" ry="0.8" class="shine" />
-            <path d="M50 53.3 v2 M46 56 Q50 59 54 56" class="mouth" />
-            <path d="M48 57.5 Q50 63 52 57.5 Z" class="tongue" />
+            <ellipse cx="50" cy="42" rx="4.6" ry="3.2" class="nose" />
+            <ellipse cx="48.6" cy="41" rx="1.5" ry="0.8" class="shine" />
+            <path d="M50 45.2 v1.8 M45.5 47.5 Q50 50.5 54.5 47.5" class="mouth" />
+            <circle cx="44" cy="46" r="0.45" class="whisker" /><circle cx="45.4" cy="47" r="0.45" class="whisker" />
+            <circle cx="56" cy="46" r="0.45" class="whisker" /><circle cx="54.6" cy="47" r="0.45" class="whisker" />
+            <path d="M48 49 Q50 54 52 49 Z" class="tongue" />
           </g>
         </svg>
       </button>
