@@ -5,29 +5,43 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Aina's Library</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icon.png.jpg">
+  <link rel="apple-touch-icon" href="icon.png.jpg?v=2">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="theme-color" content="#f7f6f3">
+  <meta name="theme-color" content="#f6f2e9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1c1916" media="(prefers-color-scheme: dark)">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..700,0..100&family=Inter:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <script>
+    // Aplica el tema elegido (claro/oscuro) antes de pintar, para que no parpadee
+    try {
+      var t = localStorage.getItem('theme');
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      var p = localStorage.getItem('palette');
+      if (p && p !== 'cafe') document.documentElement.dataset.palette = p;
+    } catch (e) {}
+  </script>
 </head>
 <body>
   <!-- Pantalla de carga -->
   <div class="screen" id="loading-screen">
-    <h1 class="brand">Aina's Library</h1>
+    <div class="loading-hero">
+      <img class="hero-img" src="icon.png.jpg?v=2" alt="">
+      <h1 class="brand">Aina's Library</h1>
+    </div>
   </div>
 
   <!-- Inicio de sesión -->
   <div class="screen" id="login-screen" hidden>
     <form class="login-card" id="login-form">
+      <img class="hero-img" src="icon.png.jpg?v=2" alt="Jack, un cachorro negro, leyendo un libro">
       <h1 class="brand">Aina's Library</h1>
       <p class="muted">Inicia sesión para ver tu biblioteca</p>
       <label class="field">
-        <span>Email</span>
-        <input type="email" name="email" autocomplete="username" required>
+        <span>Usuario</span>
+        <input type="text" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
       </label>
       <label class="field">
         <span>Contraseña</span>
@@ -61,11 +75,19 @@
     <!-- Contenido -->
     <main class="content">
       <section class="view is-active" id="view-library" aria-label="Biblioteca">
-        <div class="segmented" id="status-tabs" role="tablist" aria-label="Estado de lectura">
-          <button role="tab" class="segment is-active" data-status="reading">Leyendo <span class="count" data-count="reading">0</span></button>
-          <button role="tab" class="segment" data-status="read">Leídos <span class="count" data-count="read">0</span></button>
-          <button role="tab" class="segment" data-status="pending">Pendientes <span class="count" data-count="pending">0</span></button>
+        <!-- Dos secciones: cómo va con sus lecturas / qué libros tiene -->
+        <div class="library-sections" role="tablist" aria-label="Sección de la biblioteca">
+          <button role="tab" class="library-section is-active" data-group="reading" aria-selected="true">Mi lectura</button>
+          <button role="tab" class="library-section" data-group="shelf" aria-selected="false">Mi estantería</button>
         </div>
+        <div class="segmented" id="status-tabs" data-group="reading" role="tablist" aria-label="Estado de lectura">
+          <button role="tab" class="segment is-active" data-group="reading" data-status="reading">Leyendo <span class="count" data-count="reading">0</span></button>
+          <button role="tab" class="segment" data-group="reading" data-status="read">Leídos <span class="count" data-count="read">0</span></button>
+          <button role="tab" class="segment" data-group="reading" data-status="pending">Pendientes <span class="count" data-count="pending">0</span></button>
+          <button role="tab" class="segment" data-group="shelf" data-status="owned" hidden>En propiedad <span class="count" data-count="owned">0</span></button>
+          <button role="tab" class="segment" data-group="shelf" data-status="wishlist" hidden>Deseados <span class="count" data-count="wishlist">0</span></button>
+        </div>
+        <p class="library-hint muted" id="library-hint" hidden></p>
         <div class="toolbar">
           <button type="button" class="chip" data-sort-view="library">
             <svg viewBox="0 0 24 24"><path d="M4 7h10M4 12h7M4 17h4M17 5v14M14 16l3 3 3-3"/></svg>
@@ -86,14 +108,55 @@
             <span class="chip-label"></span>
           </button>
         </div>
+        <section class="for-you" id="for-you" hidden>
+          <h3 class="section-title">Para ti</h3>
+          <p class="for-you-why muted" id="for-you-why"></p>
+          <div class="shelf" id="for-you-list"></div>
+        </section>
         <div id="catalog"></div>
         <p class="empty" id="catalog-empty" hidden></p>
       </section>
 
-      <section class="view" id="view-discover" aria-label="Descubrir">
-        <div class="placeholder">
-          <h2>Descubrir</h2>
-          <p>Próximamente: recomendaciones y novedades.</p>
+      <section class="view" id="view-reading" aria-label="Lectura">
+        <div class="reading">
+          <h3 class="settings-title">¿Qué vas a leer?</h3>
+          <div class="settings reading-picker">
+            <div class="setting-group is-picker" data-for="reading-book">
+              <span class="setting-label" hidden>¿Qué vas a leer?</span>
+              <select id="reading-book" hidden></select>
+            </div>
+          </div>
+
+          <div class="timer" role="timer" aria-live="off">
+            <div class="timer-ring">
+              <svg viewBox="0 0 120 120" class="ring" aria-hidden="true">
+                <circle cx="60" cy="60" r="54" class="ring-track" />
+                <circle cx="60" cy="60" r="54" class="ring-progress" id="ring-progress" />
+              </svg>
+              <div class="timer-center">
+                <div class="timer-time" id="timer-time">00:00</div>
+                <div class="timer-goal" id="timer-goal">0 / 20 min hoy</div>
+              </div>
+            </div>
+            <div class="timer-status" id="timer-status">Listo para empezar</div>
+          </div>
+
+          <div class="timer-actions">
+            <button type="button" class="btn btn-primary timer-main" id="btn-timer-start">Iniciar lectura</button>
+            <button type="button" class="btn btn-secondary" id="btn-timer-pause" hidden>Pausar</button>
+            <button type="button" class="btn btn-primary" id="btn-timer-finish" hidden>Finalizar lectura</button>
+          </div>
+          <p class="form-error" id="timer-error" hidden></p>
+
+          <div class="stats reading-stats">
+            <div class="stat"><strong id="reading-today">0 min</strong><span>Hoy</span></div>
+            <div class="stat"><strong id="reading-week">0 min</strong><span>Esta semana</span></div>
+            <div class="stat"><strong id="reading-streak">0</strong><span>Días seguidos</span></div>
+          </div>
+
+          <h3 class="section-title">Lecturas recientes</h3>
+          <ul class="sessions" id="sessions-list"></ul>
+          <p class="empty" id="sessions-empty">Todavía no has registrado ninguna lectura.</p>
         </div>
       </section>
 
@@ -111,18 +174,90 @@
           </div>
           <p class="avatar-status" id="avatar-status" hidden></p>
           <button type="button" class="link-btn" id="btn-remove-avatar" hidden>Quitar foto</button>
-          <h2>Perfil</h2>
-          <p class="muted" id="profile-email"></p>
+          <h2 class="profile-name" id="profile-email"></h2>
           <div class="stats">
             <div class="stat"><strong id="stat-read">0</strong><span>Leídos</span></div>
             <div class="stat"><strong id="stat-reading">0</strong><span>Leyendo</span></div>
             <div class="stat"><strong id="stat-pending">0</strong><span>Pendientes</span></div>
           </div>
-          <label class="toggle">
-            <span>Mostrar la mascota</span>
-            <input type="checkbox" id="pet-toggle" checked>
-          </label>
-          <button class="btn btn-secondary" id="btn-logout">Cerrar sesión</button>
+
+          <!-- Reto anual -->
+          <div class="challenge" id="challenge">
+            <div class="challenge-head">
+              <span class="challenge-title" id="challenge-title">Reto 2026</span>
+              <span class="challenge-count" id="challenge-count"></span>
+            </div>
+            <div class="progress"><div class="progress-bar" id="challenge-bar"></div></div>
+            <p class="challenge-note muted" id="challenge-note"></p>
+          </div>
+
+          <button type="button" class="btn btn-secondary btn-block" id="btn-stats">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M10 20V5M15 20v-6M20 20V9"/></svg>
+            Estadísticas y resumen del año
+          </button>
+
+          <!-- Jack: logros y accesorios -->
+          <h3 class="settings-title">Armario de Jack</h3>
+          <div class="wardrobe" id="wardrobe"></div>
+          <p class="wardrobe-hint muted">Consigue logros para desbloquear accesorios y toca uno para ponérselo o quitárselo.</p>
+
+          <h3 class="settings-title">Ajustes</h3>
+          <div class="settings">
+            <label class="setting">
+              <span class="setting-label">Mostrar a Jack</span>
+              <input type="checkbox" class="switch" id="pet-toggle" checked>
+            </label>
+            <div class="setting-group" data-for="theme-select">
+              <span class="setting-label" hidden>Apariencia</span>
+              <select id="theme-select" hidden>
+                <option value="auto">Automático</option>
+                <option value="light">Claro</option>
+                <option value="dark">Oscuro</option>
+              </select>
+            </div>
+            <div class="setting-group" data-for="palette-select">
+              <span class="setting-label" hidden>Tema de color</span>
+              <select id="palette-select" hidden>
+                <option value="cafe" data-swatch="#9b6a45,#ebe5d8">Café</option>
+                <option value="rosa" data-swatch="#b05c6e,#f1e4e3">Rosa antiguo</option>
+                <option value="salvia" data-swatch="#5b7f5e,#e4e8dc">Salvia</option>
+                <option value="lavanda" data-swatch="#7b64a8,#e8e3ef">Lavanda</option>
+                <option value="oceano" data-swatch="#3f6f8f,#e0e7ec">Océano</option>
+                <option value="gotico" data-swatch="#8c1c2c,#1f1a1b">Gótico</option>
+              </select>
+            </div>
+            <div class="setting-group" data-for="goal-select">
+              <span class="setting-label" hidden>Objetivo de lectura diario</span>
+              <select id="goal-select" hidden>
+                <option value="10">10 min</option>
+                <option value="15">15 min</option>
+                <option value="20">20 min</option>
+                <option value="30">30 min</option>
+                <option value="45">45 min</option>
+                <option value="60">1 h</option>
+              </select>
+            </div>
+            <div class="setting-group" data-for="challenge-select">
+              <span class="setting-label" hidden>Reto anual</span>
+              <select id="challenge-select" hidden>
+                <option value="0">Sin reto</option>
+                <option value="6">6 libros</option>
+                <option value="12">12 libros</option>
+                <option value="20">20 libros</option>
+                <option value="24">24 libros</option>
+                <option value="30">30 libros</option>
+                <option value="40">40 libros</option>
+                <option value="52">52 libros</option>
+                <option value="75">75 libros</option>
+                <option value="100">100 libros</option>
+              </select>
+            </div>
+            <button type="button" class="setting" id="btn-tour">
+              <span class="setting-label">Ver la guía de Jack</span>
+              <span class="setting-value">🐾</span>
+            </button>
+            <button type="button" class="setting setting-danger" id="btn-logout">Cerrar sesión</button>
+          </div>
         </div>
       </section>
     </main>
@@ -137,12 +272,33 @@
         <svg viewBox="0 0 100 100" aria-hidden="true">
           <!-- Cachorro negro tumbado, inspirado en el icono de la app -->
           <g class="pet-tail"><path d="M76 80 Q90 76 90 64" /></g>
-          <ellipse cx="54" cy="80" rx="27" ry="12" class="fur" />
-          <ellipse cx="50" cy="70" rx="17" ry="12" class="fur" />
+          <ellipse cx="54" cy="80" rx="27" ry="12" class="fur pet-body" />
+          <ellipse cx="50" cy="70" rx="17" ry="12" class="fur pet-chest" />
           <!-- patas delanteras estiradas -->
           <path d="M34 74 Q31 86 33 92 Q39 97 45 92 Q45 84 44 76 Z" class="fur leg" />
           <path d="M56 76 Q55 86 57 92 Q63 97 69 92 Q68 84 66 74 Z" class="fur leg" />
           <path d="M36.5 93 v-3 M39.5 94 v-3 M42.5 93 v-3 M59.5 93 v-3 M62.5 94 v-3 M65.5 93 v-3" class="toes" />
+          <!-- libro (solo visible mientras lee) -->
+          <g class="pet-reading-book">
+            <path d="M51 76 Q41 71 32 74 L33 90 Q42 87 51 91 Q60 87 69 90 L70 74 Q61 71 51 76 Z" class="rb-cover" />
+            <path d="M51 74 Q42 70 34 73 L35 88 Q43 85 51 89 Z" class="rb-page" />
+            <path d="M51 74 Q60 70 68 73 L67 88 Q59 85 51 89 Z" class="rb-page" />
+            <path d="M38 77 q5 -1 10 0.5 M38 80 q5 -1 10 0.5 M38 83 q4 -0.8 8 0.3 M54 77.5 q5 -1.5 10 -0.5 M54 80.5 q5 -1.5 10 -0.5 M54 83.5 q4 -1.2 8 -0.4" class="rb-text" />
+            <path d="M51 74 Q58 70.5 66 73 L65.5 87.5 Q58 85 51 89 Z" class="rb-page rb-flip" />
+            <ellipse cx="34.5" cy="86" rx="4.5" ry="4" class="fur leg" />
+            <ellipse cx="67.5" cy="86" rx="4.5" ry="4" class="fur leg" />
+          </g>
+          <!-- accesorios del cuello (se ven si están puestos) -->
+          <g class="acc acc-scarf">
+            <path d="M32 59 Q50 68 68 59 L68.5 64.5 Q50 74 31.5 64.5 Z" class="acc-scarf-band" />
+            <path d="M57 66 L62 79 L55.5 80 L52.5 68 Z" class="acc-scarf-band" />
+            <path d="M36 61.5 L38 66.5 M42 63.5 L43.5 68.5 M58 63.5 L56.5 68.5 M64 61.5 L62 66.5" class="acc-scarf-stripe" />
+          </g>
+          <g class="acc acc-bowtie">
+            <path d="M50 63 L40 57.5 L40 68.5 Z M50 63 L60 57.5 L60 68.5 Z" class="acc-bowtie-wing" />
+            <circle cx="50" cy="63" r="2.8" class="acc-bowtie-knot" />
+          </g>
+          <g class="pet-head-pose">
           <g class="pet-head">
             <!-- orejas caídas -->
             <path d="M34 28 Q21 30 23 48 Q25 57 33 52 Q36 40 38 31 Z" class="ear" />
@@ -158,13 +314,53 @@
               <circle cx="43" cy="40" r="0.9" class="shine" />
               <circle cx="59" cy="40" r="0.9" class="shine" />
             </g>
+            <path d="M38.5 41 Q42 44 45.5 41 M54.5 41 Q58 44 61.5 41" class="eyes-closed" />
             <ellipse cx="50" cy="50" rx="4.6" ry="3.3" class="nose" />
             <ellipse cx="48.6" cy="49" rx="1.5" ry="0.8" class="shine" />
             <path d="M50 53.3 v2 M46 56 Q50 59 54 56" class="mouth" />
             <path d="M48 57.5 Q50 63 52 57.5 Z" class="tongue" />
+            <!-- accesorios de la cabeza -->
+            <g class="acc acc-glasses">
+              <circle cx="42" cy="41" r="5.6" class="acc-glasses-lens" />
+              <circle cx="58" cy="41" r="5.6" class="acc-glasses-lens" />
+              <path d="M47.6 40.5 Q50 38.6 52.4 40.5 M36.4 40 L32 37.5 M63.6 40 L68 37.5" class="acc-glasses-frame" />
+            </g>
+            <g class="acc acc-hat">
+              <path d="M31.5 31 Q32 12 50 11 Q68 12 68.5 31 Z" class="acc-hat-wool" />
+              <path d="M30.5 29 Q50 24.5 69.5 29 L70 34 Q50 29.5 30 34 Z" class="acc-hat-band" />
+              <circle cx="50" cy="10" r="4.4" class="acc-hat-band" />
+            </g>
+            <g class="acc acc-crown">
+              <path d="M37 28 L35.5 14 L43 20.5 L50 10.5 L57 20.5 L64.5 14 L63 28 Q50 25.5 37 28 Z" class="acc-crown-gold" />
+              <circle cx="50" cy="21" r="1.8" class="acc-crown-gem" />
+            </g>
+          </g>
+          </g>
+          <!-- zzz cuando está dormido -->
+          <g class="pet-zzz">
+            <text x="72" y="44">z</text>
+            <text x="79" y="34">z</text>
+            <text x="86" y="23">Z</text>
           </g>
         </svg>
       </button>
+    </div>
+
+    <!-- Guía de Jack: ilumina cada zona y la explica -->
+    <div class="tour" id="tour" hidden>
+      <div class="tour-spot" id="tour-spot"></div>
+      <div class="tour-card" id="tour-card" role="dialog" aria-modal="true" aria-labelledby="tour-text">
+        <div class="tour-head">
+          <span class="tour-name">🐾 Jack</span>
+          <span class="tour-step" id="tour-step"></span>
+        </div>
+        <p class="tour-text" id="tour-text"></p>
+        <div class="tour-actions">
+          <button type="button" class="link-btn tour-skip" id="tour-skip">Saltar guía</button>
+          <button type="button" class="btn btn-secondary btn-small" id="tour-back">Atrás</button>
+          <button type="button" class="btn btn-primary btn-small" id="tour-next">Siguiente</button>
+        </div>
+      </div>
     </div>
 
     <!-- Menú inferior -->
@@ -177,9 +373,12 @@
         <svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>
         <span>Explorar</span>
       </button>
-      <button class="tab" data-goto="discover">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>
-        <span>Descubrir</span>
+      <button class="tab" data-goto="reading">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 1.5M10 3h4M12 3v3"/></svg>
+          <span class="tab-dot" id="reading-dot" hidden></span>
+        </span>
+        <span>Lectura</span>
       </button>
       <button class="tab" data-goto="profile">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1-3.8 3.8-5.5 7-5.5s6 1.7 7 5.5"/></svg>
@@ -198,6 +397,20 @@
         </button>
       </header>
 
+      <!-- Buscar el libro en Open Library (solo al añadir) -->
+      <div class="lookup" id="lookup">
+        <div class="lookup-bar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
+          <input type="search" id="lookup-input" placeholder="Busca por título, autor o ISBN…" autocomplete="off" enterkeyhint="search" aria-label="Buscar libro">
+          <button type="button" class="icon-btn lookup-scan" id="btn-scan" aria-label="Escanear código de barras">
+            <svg viewBox="0 0 24 24"><path d="M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3M8 8v8M11 8v8M14 8v8M17 8v8"/></svg>
+          </button>
+        </div>
+        <p class="lookup-status muted" id="lookup-status" hidden></p>
+        <div class="lookup-results" id="lookup-results"></div>
+        <p class="lookup-or muted"><span>o rellénalo a mano</span></p>
+      </div>
+
       <label class="field">
         <span>Título *</span>
         <input name="title" required maxlength="200">
@@ -208,12 +421,42 @@
       </label>
 
       <div class="field-row">
+        <label class="field field-grow">
+          <span>Saga (opcional)</span>
+          <input name="series" maxlength="120" placeholder="Ej.: Empíreo" list="series-list">
+          <datalist id="series-list"></datalist>
+        </label>
+        <label class="field field-small">
+          <span>Tomo</span>
+          <input name="series_number" type="number" inputmode="decimal" min="0" step="0.5">
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Categoría (opcional)</span>
+        <input name="category" maxlength="80" placeholder="Ej.: Fantasía" list="category-list">
+        <datalist id="category-list"></datalist>
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Páginas totales</span>
+          <input name="total_pages" type="number" inputmode="numeric" min="1" max="20000">
+        </label>
+        <label class="field">
+          <span>Página actual</span>
+          <input name="current_page" type="number" inputmode="numeric" min="0" max="20000">
+        </label>
+      </div>
+
+      <div class="field-row">
         <label class="field">
           <span>Estado</span>
           <select name="status">
             <option value="pending">Pendiente</option>
             <option value="reading">Leyendo</option>
             <option value="read">Leído</option>
+            <option value="wishlist">Deseado (aún no lo tengo)</option>
           </select>
         </label>
         <label class="field">
@@ -228,6 +471,11 @@
           </select>
         </label>
       </div>
+
+      <label class="setting field-switch" id="owned-field">
+        <span class="setting-label">Lo tengo <small class="muted">(en papel o digital)</small></span>
+        <input type="checkbox" class="switch" name="owned" checked>
+      </label>
 
       <label class="field">
         <span>Fecha en que lo terminó</span>
@@ -245,7 +493,7 @@
       </label>
 
       <label class="field">
-        <span>Notas</span>
+        <span>Mi reseña / notas</span>
         <textarea name="notes" rows="4"></textarea>
       </label>
 
@@ -256,6 +504,95 @@
         <button type="submit" class="btn btn-primary" id="btn-save">Guardar</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Ficha de un libro de la Biblioteca -->
+  <dialog class="sheet" id="detail-dialog">
+    <div class="sheet-body">
+      <header class="sheet-header">
+        <span></span>
+        <button type="button" class="icon-btn" id="btn-close-detail" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+
+      <div class="detail-top">
+        <div class="detail-cover" id="detail-cover"></div>
+        <h2 id="detail-title"></h2>
+        <p class="muted" id="detail-author"></p>
+      </div>
+
+      <div class="detail-rows">
+        <div class="detail-row">
+          <span class="detail-label">Puntuación</span>
+          <div class="stars" id="detail-stars" role="radiogroup" aria-label="Puntuación"></div>
+        </div>
+        <div class="detail-row detail-row-block">
+          <span class="detail-label">Estado</span>
+          <div class="segmented detail-status" id="detail-status" role="radiogroup" aria-label="Estado">
+            <button type="button" class="segment" data-status="pending">Pendiente</button>
+            <button type="button" class="segment" data-status="reading">Leyendo</button>
+            <button type="button" class="segment" data-status="read">Leído</button>
+            <button type="button" class="segment" data-status="wishlist">Deseado</button>
+          </div>
+        </div>
+        <button type="button" class="detail-row detail-progress" id="detail-progress-row">
+          <span class="detail-label">Progreso</span>
+          <span class="detail-progress-body">
+            <span class="detail-value" id="detail-progress-text">Añadir página</span>
+            <span class="progress" id="detail-progress-track" hidden><span class="progress-bar" id="detail-progress-bar"></span></span>
+            <span class="detail-sub muted" id="detail-progress-eta" hidden></span>
+          </span>
+        </button>
+        <div class="detail-row">
+          <span class="detail-label">Tiempo de lectura</span>
+          <span class="detail-value" id="detail-time">—</span>
+        </div>
+        <label class="detail-row" id="detail-owned-row">
+          <span class="detail-label">Lo tengo <small>(en papel o digital)</small></span>
+          <input type="checkbox" class="switch" id="detail-owned">
+        </label>
+        <div class="detail-row" id="detail-finished-row" hidden>
+          <span class="detail-label">Terminado el</span>
+          <span class="detail-value" id="detail-finished"></span>
+        </div>
+      </div>
+
+      <!-- Saga -->
+      <section class="detail-section" id="detail-series" hidden>
+        <h3 class="detail-section-title" id="detail-series-title"></h3>
+        <div class="series-strip" id="detail-series-list"></div>
+        <p class="series-next" id="detail-series-next" hidden></p>
+      </section>
+
+      <!-- Reseña -->
+      <section class="detail-section">
+        <h3 class="detail-section-title">Mi reseña</h3>
+        <textarea class="review-input" id="detail-review" rows="3" maxlength="4000" placeholder="¿Qué te ha parecido? Se guarda sola."></textarea>
+        <p class="review-saved muted" id="detail-review-status" hidden></p>
+      </section>
+
+      <!-- Citas -->
+      <section class="detail-section">
+        <h3 class="detail-section-title">Citas favoritas</h3>
+        <ul class="quotes" id="detail-quotes"></ul>
+        <p class="muted quotes-empty" id="detail-quotes-empty" hidden>Aún no has guardado ninguna cita.</p>
+        <form class="quote-form" id="quote-form">
+          <textarea name="text" rows="2" maxlength="2000" placeholder="Escribe una frase que te haya encantado…" required></textarea>
+          <div class="quote-form-row">
+            <input name="page" type="number" inputmode="numeric" min="1" placeholder="Pág." aria-label="Página">
+            <button type="submit" class="btn btn-secondary btn-small">Guardar cita</button>
+          </div>
+        </form>
+      </section>
+
+      <p class="form-error" id="detail-error" hidden></p>
+
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-secondary" id="btn-detail-edit">Editar detalles</button>
+        <button type="button" class="btn btn-primary" id="btn-detail-read">Leer ahora</button>
+      </div>
+    </div>
   </dialog>
 
   <!-- Ordenar y filtrar -->
@@ -298,6 +635,65 @@
       </div>
       <p class="form-error" id="catalog-error" hidden></p>
       <button type="button" class="btn btn-primary" id="btn-add-to-library">Añadir a mi biblioteca</button>
+      <button type="button" class="btn btn-secondary btn-wish" id="btn-add-to-wishlist">♡ Añadir a deseados</button>
+    </div>
+  </dialog>
+
+  <!-- ¿Por qué página vas? -->
+  <dialog class="sheet sheet-small" id="progress-dialog">
+    <form class="sheet-body" id="progress-form" method="dialog">
+      <header class="sheet-header">
+        <h2>¿Por qué página vas?</h2>
+        <button type="button" class="icon-btn" id="btn-close-progress" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <p class="muted progress-book" id="progress-book"></p>
+      <div class="field-row">
+        <label class="field">
+          <span>Página actual</span>
+          <input name="current_page" type="number" inputmode="numeric" min="0" max="20000" required>
+        </label>
+        <label class="field">
+          <span>de (páginas totales)</span>
+          <input name="total_pages" type="number" inputmode="numeric" min="1" max="20000">
+        </label>
+      </div>
+      <p class="form-error" id="progress-error" hidden></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-secondary" id="btn-skip-progress">Ahora no</button>
+        <button type="submit" class="btn btn-primary" id="btn-save-progress">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Escáner de código de barras -->
+  <dialog class="sheet scanner-sheet" id="scanner-dialog">
+    <div class="sheet-body">
+      <header class="sheet-header">
+        <h2>Escanear ISBN</h2>
+        <button type="button" class="icon-btn" id="btn-close-scanner" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <div class="scanner-view">
+        <video id="scanner-video" playsinline muted></video>
+        <div class="scanner-frame" aria-hidden="true"></div>
+      </div>
+      <p class="muted scanner-status" id="scanner-status">Apunta al código de barras de la contraportada.</p>
+    </div>
+  </dialog>
+
+  <!-- Estadísticas -->
+  <dialog class="sheet" id="stats-dialog">
+    <div class="sheet-body">
+      <header class="sheet-header">
+        <h2>Estadísticas</h2>
+        <button type="button" class="icon-btn" id="btn-close-stats" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <div id="stats-body"></div>
     </div>
   </dialog>
 
