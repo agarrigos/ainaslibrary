@@ -100,6 +100,7 @@ db.auth.onAuthStateChange((event, session) => {
       loadSessions();
       loadQuoteCount();
       applyChallengeFromUser(session.user);
+      applyFavoritesFromUser(session.user);
     }, 0);
   }
 });
@@ -635,12 +636,87 @@ function renderSwatches() {
   });
 }
 
+// ---------- Añadir libro: solo desde la búsqueda ----------
+// Se busca (o se escanea), se elige el resultado y se indican estado, puntuación y notas,
+// igual que en la ficha de un libro. El formulario completo queda para «Editar detalles».
+let newPick = null;     // libro elegido en la búsqueda
+let newStatus = 'pending';
+let newRating = null;
+
+function renderNewPick() {
+  document.querySelectorAll('#new-status .segment').forEach((seg) => {
+    const on = seg.dataset.status === newStatus;
+    seg.classList.toggle('is-active', on);
+    seg.setAttribute('aria-checked', String(on));
+  });
+  const stars = $('new-stars');
+  stars.innerHTML = '';
+  for (let n = 1; n <= 5; n++) {
+    const s = document.createElement('button');
+    s.type = 'button';
+    s.className = `star${(newRating || 0) >= n ? ' is-on' : ''}`;
+    s.setAttribute('role', 'radio');
+    s.setAttribute('aria-checked', String(newRating === n));
+    s.setAttribute('aria-label', `${n} ${n === 1 ? 'estrella' : 'estrellas'}`);
+    s.innerHTML = STAR_SVG;
+    s.addEventListener('click', () => { newRating = newRating === n ? null : n; renderNewPick(); });
+    stars.appendChild(s);
+  }
+  $('btn-save').disabled = !editingId && !newPick;
+}
+
+function pickNewBook(c) {
+  newPick = c;
+  const cover = $('new-pick-cover');
+  cover.style.backgroundImage = c.cover_url ? `url("${c.cover_url.replace('-L.jpg', '-M.jpg')}")` : '';
+  $('new-pick-title').textContent = c.title;
+  $('new-pick-meta').textContent = [
+    c.author,
+    c.series ? `${c.series} #${c.series_number}` : '',
+    c.total_pages ? `${c.total_pages} págs.` : '',
+  ].filter(Boolean).join(' · ');
+  const owned = books.find((x) => sameBook(x, c));
+  lookupStatus(owned ? 'Ojo: este libro ya está en tu biblioteca.' : '');
+  // Se esconde la búsqueda y aparece el libro elegido
+  $('lookup-results').hidden = true;
+  $('lookup').querySelector('.lookup-bar').hidden = true;
+  $('new-pick').hidden = false;
+  renderNewPick();
+}
+
+function unpickNewBook() {
+  newPick = null;
+  $('new-pick').hidden = true;
+  $('lookup-results').hidden = false;
+  $('lookup').querySelector('.lookup-bar').hidden = false;
+  lookupStatus('');
+  renderNewPick();
+  $('lookup-input').focus();
+}
+
+document.querySelectorAll('#new-status .segment').forEach((seg) => {
+  seg.addEventListener('click', () => { newStatus = seg.dataset.status; renderNewPick(); });
+});
+$('new-pick-change').addEventListener('click', unpickNewBook);
+
 function openBookDialog(book = null) {
   editingId = book?.id ?? null;
   bookForm.reset();
   $('book-error').hidden = true;
-  $('book-dialog-title').textContent = book ? 'Editar libro' : 'Nuevo libro';
+  $('book-dialog-title').textContent = book ? 'Editar libro' : 'Añadir libro';
   $('btn-delete').hidden = !book;
+
+  // Añadir: solo búsqueda + estado/puntuación/notas. Editar: formulario completo.
+  $('manual-fields').hidden = !book;
+  bookForm.noValidate = !book; // los campos ocultos del formulario completo no deben bloquear el guardado
+  newPick = null;
+  newStatus = libraryStatus === 'owned' ? 'pending' : (['pending', 'reading', 'read', 'wishlist'].includes(libraryStatus) ? libraryStatus : 'pending');
+  newRating = null;
+  $('new-notes').value = '';
+  $('new-pick').hidden = true;
+  $('lookup-results').hidden = false;
+  $('lookup').querySelector('.lookup-bar').hidden = false;
+  renderNewPick();
 
   // El buscador solo aparece al añadir
   $('lookup').hidden = Boolean(book);
@@ -706,6 +782,40 @@ function renderFormLists() {
 
 const intOrNull = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Math.round(Number(v)));
 
+// Guarda el libro elegido en la búsqueda
+async function saveNewBook() {
+  if (!newPick) return showBookError('Busca el libro y elígelo de la lista.');
+  const c = newPick;
+  const payload = {
+    title: c.title,
+    author: c.author || '',
+    cover_url: c.cover_url || null,
+    cover_color: selectedColor,
+    series: c.series || null,
+    series_number: c.series_number ?? null,
+    total_pages: c.total_pages || null,
+    category: categoryOf(c) || null,
+    status: newStatus,
+    rating: newRating,
+    notes: $('new-notes').value.trim(),
+    owned: newStatus !== 'wishlist',
+    // Igual que en la ficha: al marcarlo como leído se pone la fecha de hoy
+    finished_at: newStatus === 'read' ? todayISO() : null,
+  };
+  $('btn-save').disabled = true;
+  const { data, error } = await db.from('books').insert(cleanBook(payload)).select().single();
+  $('btn-save').disabled = false;
+  if (error) {
+    console.error(error);
+    return showBookError(`No se pudo guardar. ${explainError(error, 'mejoras.sql')}`);
+  }
+  books = [data, ...books];
+  dialog.close();
+  refresh();
+  // Se muestra en su apartado
+  setLibraryTab(data.status === 'wishlist' ? 'wishlist' : data.status);
+}
+
 $('btn-add').addEventListener('click', () => openBookDialog());
 $('btn-close-dialog').addEventListener('click', () => dialog.close());
 
@@ -716,6 +826,7 @@ function showBookError(msg) {
 
 bookForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (!editingId) return saveNewBook();
   const payload = {
     title: bookForm.title.value.trim(),
     author: bookForm.author.value.trim(),
@@ -2033,7 +2144,8 @@ function shouldShowTour() {
 const TOUR_STEPS = [
   {
     view: 'library', tab: 'reading', target: null,
-    text: '¡Hola! Me llamo Jack y seré tu compañero de lectura. 🐾 ¿Te enseño cómo funciona tu biblioteca? Solo es un momento.',
+    text: '¡Hola! Me llamo Jack, aunque creo que ya me conoces. 🐾 ¡Voy a explicarte cómo funciona tu nueva biblioteca!',
+    intro: true, // Jack en grande, en el centro, saludando
   },
   {
     view: 'library', tab: 'reading', target: '#status-tabs',
@@ -2095,7 +2207,7 @@ function endTour() {
   const el = document.getElementById('tour');
   if (el.hidden) return;
   el.hidden = true;
-  document.body.classList.remove('touring');
+  document.body.classList.remove('touring', 'tour-intro');
   tourIndex = -1;
   goTo('library');
   setLibraryTab('reading');
@@ -2115,6 +2227,9 @@ function showTourStep(i) {
   if (step.view !== currentView) goTo(step.view);
   if (step.tab && step.tab !== libraryStatus) setLibraryTab(step.tab);
 
+  // Primer paso: Jack en grande, en el centro, saludando. Al seguir, vuelve a su sitio.
+  document.body.classList.toggle('tour-intro', Boolean(step.intro));
+  $('tour-card').classList.toggle('is-intro', Boolean(step.intro));
   $('tour-text').textContent = step.text;
   $('tour-step').textContent = `${i + 1} de ${TOUR_STEPS.length}`;
   $('tour-back').hidden = i === 0;
@@ -2570,7 +2685,7 @@ function renderLookupResults(items) {
         bookForm.total_pages.value = c.total_pages || '';
       }
       wrap.querySelectorAll('.lookup-item').forEach((x) => x.classList.toggle('is-selected', x === b));
-      lookupStatus('¡Listo! Revisa los datos, elige el estado y pulsa Guardar.');
+      pickNewBook(c);
     });
     wrap.appendChild(b);
   });
@@ -3061,19 +3176,114 @@ function dailyShuffle(list) {
   return [...list].sort((a, b) => hash(a.title) - hash(b.title));
 }
 
+// Categorías favoritas elegidas a mano (si no hay, se deducen con favoriteCategories)
+const FAV_KEY = 'fav-categories';
+const allCategories = () => [...new Set(catalog.map((c) => c.category))].sort(collator.compare);
+function chosenFavorites() {
+  const valid = new Set(allCategories());
+  return (loadList(FAV_KEY) || []).filter((c) => valid.has(c));
+}
+
+// "A", "A y B", "A, B y C", "A, B y 3 más"
+function joinNames(names) {
+  if (names.length <= 1) return names[0] || '';
+  if (names.length > 3) return `${names.slice(0, 2).join(', ')} y ${names.length - 2} más`;
+  return `${names.slice(0, -1).join(', ')} y ${names.at(-1)}`;
+}
+
 function renderForYou(q) {
   const box = $('for-you');
-  const cats = favoriteCategories();
-  const picks = q || !cats.length ? [] : cats.flatMap((c, i) =>
-    dailyShuffle(catalog.filter((x) => x.category === c && !isInLibrary(x))).slice(0, i === 0 ? 6 : 4));
-  box.hidden = picks.length === 0;
+  box.hidden = Boolean(q) || !catalogLoaded;
   if (box.hidden) return;
-  const names = cats.filter((c) => picks.some((p) => p.category === c));
-  $('for-you-why').textContent = `Porque te gusta${names.length > 1 ? 'n' : ''} ${names.length > 1 ? `${names.slice(0, -1).join(', ')} y ${names.at(-1)}` : names[0]}`;
+
+  const chosen = chosenFavorites();
+  const auto = favoriteCategories();
+  // Elegidas a mano: primero las que más lee; si no, las deducidas
+  const cats = chosen.length
+    ? [...chosen].sort((a, b) => (auto.indexOf(a) + 1 || 99) - (auto.indexOf(b) + 1 || 99) || collator.compare(a, b))
+    : auto;
+  const per = chosen.length ? Math.max(2, Math.ceil(12 / cats.length)) : 0;
+  const picks = cats.flatMap((c, i) =>
+    dailyShuffle(catalog.filter((x) => x.category === c && !isInLibrary(x))).slice(0, per || (i === 0 ? 6 : 4)))
+    .slice(0, 12);
+
+  const chip = $('btn-fav-cats');
+  chip.querySelector('span').textContent = chosen.length ? `Favoritas · ${chosen.length}` : 'Favoritas';
+  chip.classList.toggle('has-filters', chosen.length > 0);
+  $('fav-settings-value').textContent = chosen.length
+    ? `${chosen.length} ${chosen.length === 1 ? 'elegida' : 'elegidas'}`
+    : 'Automático';
+
   const list = $('for-you-list');
   list.innerHTML = '';
-  picks.slice(0, 12).forEach((item) => list.appendChild(createBookCard(item, () => openCatalogDialog(item))));
+  const empty = picks.length === 0;
+  $('for-you-empty').hidden = !empty;
+  list.hidden = empty;
+  $('for-you-why').hidden = empty;
+  if (empty) {
+    $('for-you-empty').querySelector('p').textContent = chosen.length
+      ? '¡Ya tienes todos los libros de tus categorías favoritas! Elige alguna más.'
+      : 'Elige tus categorías favoritas y te recomendaré libros de ellas.';
+    return;
+  }
+  const names = cats.filter((c) => picks.some((p) => p.category === c));
+  $('for-you-why').textContent = chosen.length
+    ? `De tus favoritas: ${joinNames(names)}`
+    : `Porque te gusta${names.length > 1 ? 'n' : ''} ${joinNames(names)}`;
+  picks.forEach((item) => list.appendChild(createBookCard(item, () => openCatalogDialog(item))));
 }
+
+// Ventana para elegirlas
+const favDialog = $('fav-dialog');
+let favDraft = [];
+
+function renderFavChips() {
+  const wrap = $('fav-chips');
+  wrap.innerHTML = '';
+  allCategories().forEach((cat) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'fav-chip';
+    const on = favDraft.includes(cat);
+    b.setAttribute('aria-pressed', String(on));
+    b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+    b.append(cat);
+    b.addEventListener('click', () => {
+      favDraft = favDraft.includes(cat) ? favDraft.filter((c) => c !== cat) : [...favDraft, cat];
+      renderFavChips();
+    });
+    wrap.appendChild(b);
+  });
+}
+
+function openFavDialog() {
+  favDraft = chosenFavorites();
+  renderFavChips();
+  favDialog.showModal();
+}
+
+function saveFavorites(list) {
+  if (list.length) localStorage.setItem(FAV_KEY, JSON.stringify(list));
+  else localStorage.removeItem(FAV_KEY);
+  renderCatalog();
+  // También en la cuenta, para verlas igual en todos los dispositivos
+  db.auth.updateUser({ data: { fav_categories: list } }).then(({ error }) => { if (error) console.error(error); });
+}
+
+function applyFavoritesFromUser(user) {
+  const saved = user?.user_metadata?.fav_categories;
+  if (!Array.isArray(saved)) return;
+  if (saved.length) localStorage.setItem(FAV_KEY, JSON.stringify(saved));
+  else localStorage.removeItem(FAV_KEY);
+  renderCatalog();
+}
+
+$('btn-fav-cats').addEventListener('click', openFavDialog);
+$('btn-fav-cats-empty').addEventListener('click', openFavDialog);
+$('btn-fav-settings').addEventListener('click', () => { closeSettingGroups(null); openFavDialog(); });
+$('btn-close-fav').addEventListener('click', () => favDialog.close());
+$('btn-fav-done').addEventListener('click', () => { saveFavorites(favDraft); favDialog.close(); });
+$('btn-fav-auto').addEventListener('click', () => { favDraft = []; saveFavorites([]); favDialog.close(); });
 
 // ---------- Inicio ----------
 const initial = location.hash.slice(1);

@@ -109,9 +109,19 @@
           </button>
         </div>
         <section class="for-you" id="for-you" hidden>
-          <h3 class="section-title">Para ti</h3>
+          <div class="for-you-head">
+            <h3 class="section-title">Para ti</h3>
+            <button type="button" class="chip" id="btn-fav-cats">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>
+              <span>Favoritas</span>
+            </button>
+          </div>
           <p class="for-you-why muted" id="for-you-why"></p>
           <div class="shelf" id="for-you-list"></div>
+          <div class="for-you-empty" id="for-you-empty" hidden>
+            <p class="muted">Elige tus categorías favoritas y te recomendaré libros de ellas.</p>
+            <button type="button" class="btn btn-secondary btn-small" id="btn-fav-cats-empty">Elegir categorías</button>
+          </div>
         </section>
         <div id="catalog"></div>
         <p class="empty" id="catalog-empty" hidden></p>
@@ -252,6 +262,10 @@
                 <option value="100">100 libros</option>
               </select>
             </div>
+            <button type="button" class="setting" id="btn-fav-settings">
+              <span class="setting-label">Categorías favoritas</span>
+              <span class="setting-value" id="fav-settings-value">Automático</span>
+            </button>
             <button type="button" class="setting" id="btn-tour">
               <span class="setting-label">Ver la guía de Jack</span>
               <span class="setting-value">🐾</span>
@@ -276,8 +290,11 @@
           <ellipse cx="50" cy="70" rx="17" ry="12" class="fur pet-chest" />
           <!-- patas delanteras estiradas -->
           <path d="M34 74 Q31 86 33 92 Q39 97 45 92 Q45 84 44 76 Z" class="fur leg" />
-          <path d="M56 76 Q55 86 57 92 Q63 97 69 92 Q68 84 66 74 Z" class="fur leg" />
-          <path d="M36.5 93 v-3 M39.5 94 v-3 M42.5 93 v-3 M59.5 93 v-3 M62.5 94 v-3 M65.5 93 v-3" class="toes" />
+          <g class="leg-right">
+            <path d="M56 76 Q55 86 57 92 Q63 97 69 92 Q68 84 66 74 Z" class="fur leg" />
+            <path d="M59.5 93 v-3 M62.5 94 v-3 M65.5 93 v-3" class="toes" />
+          </g>
+          <path d="M36.5 93 v-3 M39.5 94 v-3 M42.5 93 v-3" class="toes" />
           <!-- libro (solo visible mientras lee) -->
           <g class="pet-reading-book">
             <path d="M51 76 Q41 71 32 74 L33 90 Q42 87 51 91 Q60 87 69 90 L70 74 Q61 71 51 76 Z" class="rb-cover" />
@@ -335,6 +352,13 @@
               <circle cx="50" cy="21" r="1.8" class="acc-crown-gem" />
             </g>
           </g>
+          </g>
+          <!-- patita levantada para saludar (solo en el saludo de la guía) -->
+          <g class="pet-wave-paw">
+            <path d="M55 74 Q59 61 68 51 L77.5 55.5 Q70 64 66.5 76 Z" class="fur leg" />
+            <ellipse cx="73.5" cy="49.5" rx="6.4" ry="5.6" class="fur leg" />
+            <ellipse cx="73.5" cy="51" rx="2.6" ry="2" class="paw-pad" />
+            <path d="M70 45.2 v2.6 M73.5 44.2 v2.6 M77 45.2 v2.6" class="toes" />
           </g>
           <!-- zzz cuando está dormido -->
           <g class="pet-zzz">
@@ -408,9 +432,39 @@
         </div>
         <p class="lookup-status muted" id="lookup-status" hidden></p>
         <div class="lookup-results" id="lookup-results"></div>
-        <p class="lookup-or muted"><span>o rellénalo a mano</span></p>
       </div>
 
+      <!-- Libro elegido en la búsqueda: estado, puntuación y notas (como en la ficha) -->
+      <div class="new-pick" id="new-pick" hidden>
+        <div class="new-pick-book">
+          <span class="new-pick-cover" id="new-pick-cover"></span>
+          <span class="new-pick-info">
+            <strong class="new-pick-title" id="new-pick-title"></strong>
+            <span class="new-pick-meta" id="new-pick-meta"></span>
+          </span>
+          <button type="button" class="link-btn new-pick-change" id="new-pick-change">Cambiar</button>
+        </div>
+        <div class="detail-row detail-row-block">
+          <span class="detail-label">Estado</span>
+          <div class="segmented detail-status" id="new-status" role="radiogroup" aria-label="Estado">
+            <button type="button" class="segment" role="radio" data-status="pending">Pendiente</button>
+            <button type="button" class="segment" role="radio" data-status="reading">Leyendo</button>
+            <button type="button" class="segment" role="radio" data-status="read">Leído</button>
+            <button type="button" class="segment" role="radio" data-status="wishlist">Deseado</button>
+          </div>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Puntuación</span>
+          <div class="stars" id="new-stars" role="radiogroup" aria-label="Puntuación"></div>
+        </div>
+        <label class="field">
+          <span>Notas</span>
+          <textarea id="new-notes" rows="3" maxlength="4000" placeholder="Opcional"></textarea>
+        </label>
+      </div>
+
+      <!-- Formulario completo: solo al editar un libro que ya está en la biblioteca -->
+      <div class="manual-fields" id="manual-fields">
       <label class="field">
         <span>Título *</span>
         <input name="title" required maxlength="200">
@@ -496,6 +550,7 @@
         <span>Mi reseña / notas</span>
         <textarea name="notes" rows="4"></textarea>
       </label>
+      </div>
 
       <p class="form-error" id="book-error" hidden></p>
 
@@ -636,6 +691,24 @@
       <p class="form-error" id="catalog-error" hidden></p>
       <button type="button" class="btn btn-primary" id="btn-add-to-library">Añadir a mi biblioteca</button>
       <button type="button" class="btn btn-secondary btn-wish" id="btn-add-to-wishlist">♡ Añadir a deseados</button>
+    </div>
+  </dialog>
+
+  <!-- Categorías favoritas (recomendaciones de Explorar) -->
+  <dialog class="sheet" id="fav-dialog">
+    <div class="sheet-body">
+      <header class="sheet-header">
+        <h2>Categorías favoritas</h2>
+        <button type="button" class="icon-btn" id="btn-close-fav" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <p class="muted fav-hint">Elige las que más te gustan y «Para ti» te recomendará libros de ellas. Si no eliges ninguna, Jack las deduce de lo que lees y puntúas.</p>
+      <div class="fav-chips" id="fav-chips" role="group" aria-label="Categorías"></div>
+      <div class="sheet-actions">
+        <button type="button" class="btn btn-secondary" id="btn-fav-auto">Automático</button>
+        <button type="button" class="btn btn-primary" id="btn-fav-done">Listo</button>
+      </div>
     </div>
   </dialog>
 
