@@ -26,6 +26,8 @@ Abre `index.html` en el navegador, o usa la extensión *Live Server* de VS Code.
 - `styles.css` – diseño
 - `app.js` – lógica: login, biblioteca (añadir/editar/borrar), explorar (añadir a la biblioteca), búsqueda, pestañas
 - `config.js` – datos de conexión a Supabase
+- `sw.js` – service worker: abre la app al instante, funciona sin conexión y guarda las portadas
+- `icon-180.jpg`, `icon-192.jpg`, `icon-512.jpg`, `jack-240.jpg` – el icono en tamaños ligeros (el original es `icon.png.jpg`)
 - `supabase/schema.sql` – tabla `books` (Biblioteca) y reglas de seguridad
 - `supabase/catalog.sql` – tabla `catalog` (Explorar), solo lectura desde la app
 - `supabase/seed-*.sql` – libros de cada categoría para Explorar

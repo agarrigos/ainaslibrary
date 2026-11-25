@@ -25,6 +25,7 @@ function showScreen(name) {
   $('loading-screen').hidden = name !== 'loading';
   $('login-screen').hidden = name !== 'login';
   $('app').hidden = name !== 'app';
+  if (name === 'app') placeTabIndicator(); // ahora la barra ya tiene tamaño para medir
 }
 
 // ---------- Autenticación ----------
@@ -76,6 +77,7 @@ db.auth.onAuthStateChange((event, session) => {
     catalog = [];
     sessions = [];
     quoteCount = 0;
+    clearDataCache(); // al cerrar sesión no se dejan sus datos en el móvil
     renderSessions();
     petGreeted = false;
     currentUser = null;
@@ -107,7 +109,15 @@ db.auth.onAuthStateChange((event, session) => {
 
 // ---------- Datos ----------
 async function loadBooks() {
-  showSkeleton();
+  // Lo último guardado en el móvil se muestra al instante; después se actualiza
+  const cached = readCache('books');
+  if (cached) {
+    books = cached;
+    dataReady.books = true;
+    refresh();
+  } else {
+    showSkeleton();
+  }
   const { data, error } = await db
     .from('books')
     .select('*')
@@ -115,7 +125,7 @@ async function loadBooks() {
 
   if (error) {
     console.error(error);
-    showEmpty('No se pudieron cargar los libros. Revisa la conexión.');
+    if (!cached) showEmpty('No se pudieron cargar los libros. Revisa la conexión.');
     return;
   }
   books = data;
@@ -158,8 +168,17 @@ function afterBookChange(before, after) {
 let catalogLoaded = false;
 
 async function loadCatalog() {
-  catalogLoaded = false;
-  showCatalogSkeleton();
+  const cached = readCache('catalog');
+  if (cached) {
+    catalog = cached;
+    catalogLoaded = true;
+    renderCatalog();
+    renderFormLists();
+    greetOnce();
+  } else {
+    catalogLoaded = false;
+    showCatalogSkeleton();
+  }
   const { data, error } = await db
     .from('catalog')
     .select('*')
@@ -168,17 +187,34 @@ async function loadCatalog() {
 
   if (error) {
     console.error(error);
-    showCatalogEmpty('No se pudo cargar el catálogo. Revisa la conexión.');
+    if (!cached) showCatalogEmpty('No se pudo cargar el catálogo. Revisa la conexión.');
     return;
   }
   catalog = data;
+  writeCache('catalog', data);
   catalogLoaded = true;
   renderCatalog();
   renderFormLists();
   greetOnce();
 }
 
+// ---------- Datos guardados en el móvil (para abrir al instante) ----------
+// Se muestra lo último que se vio y, a la vez, se piden los datos frescos a Supabase.
+const cacheKey = (name) => `cache-${currentUserId}-${name}`;
+function readCache(name) {
+  if (!currentUserId) return null;
+  try { return JSON.parse(localStorage.getItem(cacheKey(name))); } catch { return null; }
+}
+function writeCache(name, data) {
+  if (!currentUserId) return;
+  try { localStorage.setItem(cacheKey(name), JSON.stringify(data)); } catch { /* sin espacio: no pasa nada */ }
+}
+function clearDataCache() {
+  Object.keys(localStorage).filter((k) => k.startsWith('cache-')).forEach((k) => localStorage.removeItem(k));
+}
+
 function refresh() {
+  if (dataReady.books) writeCache('books', books);
   applySearch();
   updateStats();
   renderReadingBookOptions();
@@ -231,6 +267,9 @@ function inkFor(hex) {
   return luminance < 0.5 ? '#efede8' : '#2b2b2b';
 }
 
+// Portadas de Open Library: -S (pequeña), -M (mediana), -L (grande)
+const coverSize = (url, size) => (url && url.includes('covers.openlibrary.org') ? url.replace(/-[SML]\.jpg$/, `-${size}.jpg`) : url);
+
 function createBookCard(book, onClick, { badge = false, badgeTitle = 'En tu biblioteca' } = {}) {
   // Tarjeta: portada arriba + título y autor debajo
   const el = document.createElement('button');
@@ -241,7 +280,18 @@ function createBookCard(book, onClick, { badge = false, badgeTitle = 'En tu bibl
   cover.className = 'book';
   if (book.cover_url) {
     cover.classList.add('has-image');
-    cover.style.setProperty('--cover', `url("${encodeURI(book.cover_url)}")`);
+    // <img> perezosa: solo se descarga cuando está a punto de verse (no las de categorías cerradas)
+    // y en tamaño mediano, que para la cuadrícula sobra (pesa ~2,5 veces menos que la grande)
+    const img = document.createElement('img');
+    img.className = 'book-img';
+    img.crossOrigin = 'anonymous'; // Open Library lo permite: así el móvil puede guardarlas bien
+    img.src = coverSize(book.cover_url, 'M');
+    img.alt = '';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.addEventListener('load', () => cover.classList.add('is-loaded'), { once: true });
+    img.addEventListener('error', () => img.remove(), { once: true });
+    cover.appendChild(img);
   } else {
     const color = book.cover_color || COVER_COLORS[0];
     cover.style.setProperty('--cover', color);
@@ -435,6 +485,7 @@ function renderCatalog() {
     h.setAttribute('aria-expanded', String(startOpen));
     h.addEventListener('click', () => {
       const open = !section.classList.contains('is-open');
+      if (open) fillGrid();
       section.classList.toggle('is-open', open);
       h.setAttribute('aria-expanded', String(open));
       if (q) return;
@@ -456,20 +507,26 @@ function renderCatalog() {
     peek.setAttribute('aria-hidden', 'true');
     items.filter((it) => it.cover_url).slice(0, 3).forEach((it) => {
       const img = document.createElement('img');
-      img.src = it.cover_url.replace('-L.jpg', '-S.jpg');
+      img.crossOrigin = 'anonymous';
+      img.src = coverSize(it.cover_url, 'S');
       img.alt = '';
       img.loading = 'lazy';
       peek.appendChild(img);
     });
     h.append(name, count, peek, chevron);
 
+    // Las portadas de cada categoría solo se crean al abrirla por primera vez
     const grid = document.createElement('div');
     grid.className = 'book-grid';
-    items.forEach((item) => {
-      grid.appendChild(createBookCard(item, () => openCatalogDialog(item), {
-        badge: isInLibrary(item),
-      }));
-    });
+    const fillGrid = () => {
+      if (grid.childElementCount) return;
+      items.forEach((item) => {
+        grid.appendChild(createBookCard(item, () => openCatalogDialog(item), {
+          badge: isInLibrary(item),
+        }));
+      });
+    };
+    if (startOpen) fillGrid();
 
     const panel = document.createElement('div');
     panel.className = 'setting-panel';
@@ -569,22 +626,91 @@ function updateStats() {
 // ---------- Navegación entre pestañas ----------
 let currentView = null;
 
-function goTo(view) {
+// El fondo resaltado de la barra inferior se desliza hasta la pestaña activa (como Instagram)
+// y se adapta al tamaño de cada opción: lo que ocupan su icono y su nombre, más un margen.
+// (Usa getElementById/querySelector porque se llama antes de que existan otras constantes.)
+function placeTabIndicator() {
+  const tabbar = document.querySelector('.tabbar');
+  const tab = tabbar?.querySelector('.tab.is-active');
+  if (!tab) return;
+  const content = Math.max(...[...tab.children].map((el) => el.getBoundingClientRect().width));
+  const width = Math.min(tab.offsetWidth - 8, content + 28);
+  tabbar.style.setProperty('--ind-w', `${Math.round(width)}px`);
+  tabbar.style.setProperty('--ind-x', `${Math.round(tab.offsetLeft + (tab.offsetWidth - width) / 2)}px`);
+  // La primera vez se coloca sin animación
+  if (!tabbar.classList.contains('is-ready')) requestAnimationFrame(() => requestAnimationFrame(() => tabbar.classList.add('is-ready')));
+}
+window.addEventListener('resize', placeTabIndicator);
+document.fonts?.ready.then(placeTabIndicator); // al cargar la fuente cambia el ancho de los nombres
+
+// Cambio de pestaña. Con { animate: true } (al tocar la barra) la pantalla se desliza hacia
+// el lado de la pestaña elegida, como en Instagram. Desde el código (guía de Jack, avisos…)
+// el cambio es inmediato, porque justo después se mide la pantalla nueva.
+const VIEW_ORDER = ['library', 'explore', 'reading', 'profile'];
+
+function goTo(view, { animate = false } = {}) {
+  const prev = currentView;
+  const moving = animate && prev && prev !== view
+    && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!moving) return switchView(view);
+  const dir = VIEW_ORDER.indexOf(view) < VIEW_ORDER.indexOf(prev) ? 'back' : 'forward';
+  // Se sube arriba antes de la animación (como ya pasaba al cambiar de pestaña)
+  window.scrollTo(0, 0);
+  if (document.startViewTransition) {
+    // La pantalla de antes sale y la nueva entra a la vez (iOS 18 o posterior)
+    document.documentElement.dataset.navDir = dir;
+    document.startViewTransition(() => switchView(view));
+  } else {
+    // Navegadores más antiguos: solo entra deslizándose la nueva
+    switchView(view);
+    const el = document.getElementById(`view-${view}`);
+    el.classList.remove('enter-forward', 'enter-back');
+    void el.offsetWidth;
+    el.classList.add(`enter-${dir}`);
+  }
+}
+
+function switchView(view) {
   currentView = view;
   document.querySelectorAll('.view').forEach((v) => {
     v.classList.toggle('is-active', v.id === `view-${view}`);
   });
-  document.querySelectorAll('.tab').forEach((t) => {
-    t.classList.toggle('is-active', t.dataset.goto === view);
-  });
+  const tabs = [...document.querySelectorAll('.tabbar .tab')];
+  tabs.forEach((t) => t.classList.toggle('is-active', t.dataset.goto === view));
+  placeTabIndicator();
   if (location.hash !== `#${view}`) history.replaceState(null, '', `#${view}`);
   window.scrollTo(0, 0);
   updatePetMode();
 }
 
 document.querySelectorAll('[data-goto]').forEach((btn) => {
-  btn.addEventListener('click', () => goTo(btn.dataset.goto));
+  btn.addEventListener('click', () => goTo(btn.dataset.goto, { animate: true }));
 });
+
+// Deslizar el dedo a izquierda/derecha sobre el contenido cambia a la pestaña de al lado.
+// No se activa en las filas que ya se desplazan de lado ni mientras se escribe.
+const SWIPE_IGNORE = '.shelf, .wardrobe, .series-strip, .chart-plot, .lookup-results, input, textarea, select';
+let swipeStart = null;
+const contentEl = document.querySelector('.content');
+contentEl.addEventListener('touchstart', (e) => {
+  swipeStart = null;
+  if (e.touches.length !== 1 || e.target.closest(SWIPE_IGNORE)) return;
+  const t = e.touches[0];
+  swipeStart = { x: t.clientX, y: t.clientY, time: Date.now() };
+}, { passive: true });
+contentEl.addEventListener('touchend', (e) => {
+  if (!swipeStart) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - swipeStart.x;
+  const dy = t.clientY - swipeStart.y;
+  const quick = Date.now() - swipeStart.time < 600;
+  swipeStart = null;
+  // Gesto claramente horizontal, de al menos 70 px y rápido
+  if (!quick || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.8) return;
+  if (document.body.classList.contains('touring') || document.querySelector('dialog[open]')) return;
+  const next = VIEW_ORDER[VIEW_ORDER.indexOf(currentView) + (dx < 0 ? 1 : -1)];
+  if (next) goTo(next, { animate: true });
+}, { passive: true });
 
 // ---------- Búsqueda ----------
 const searchBar = $('search-bar');
@@ -611,7 +737,12 @@ $('btn-search').addEventListener('click', () => {
   }
 });
 
-searchInput.addEventListener('input', applySearch);
+// Al escribir se espera un instante para no repintar las listas con cada letra
+let searchDebounce = null;
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(applySearch, 140);
+});
 
 // ---------- Formulario de libro ----------
 const dialog = $('book-dialog');
@@ -1268,11 +1399,15 @@ async function loadAvatar(user) {
   currentUser = user;
   const path = user?.user_metadata?.avatar_path;
   if (!path) return setAvatar(null);
+  const saved = readCache('avatar');
+  if (saved && saved.path === path && saved.expires > Date.now()) return setAvatar(saved.url);
   const { data, error } = await db.storage.from(AVATAR_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 7);
   if (error) {
     console.error(error);
     return setAvatar(null);
   }
+  // Válido 7 días; se guarda para 6 y así no se pide cada vez que se abre la app
+  writeCache('avatar', { path, url: data.signedUrl, expires: Date.now() + 6 * 24 * 3600 * 1000 });
   setAvatar(data.signedUrl);
 }
 
@@ -1856,14 +1991,23 @@ async function syncWakeLock() {
 }
 
 async function loadSessions() {
+  const cached = readCache('sessions');
+  if (cached) {
+    sessions = cached;
+    dataReady.sessions = true;
+    renderSessions();
+  }
   // Todas (para las estadísticas del año y las rachas); para una persona son pocas filas
   const { data, error } = await db
     .from('reading_sessions')
-    .select('*')
+    .select('id, book_id, book_title, started_at, duration_seconds')
     .order('started_at', { ascending: false })
     .limit(5000);
+  if (error) {
+    console.error(error);
+    if (cached) return; // sin conexión: se quedan las guardadas
+  }
   sessionsError = Boolean(error);
-  if (error) console.error(error);
   sessions = data || [];
   dataReady.sessions = true;
   renderSessions();
@@ -1875,6 +2019,7 @@ const sessionDateFmt = new Intl.DateTimeFormat('es', {
 });
 
 function renderSessions() {
+  if (dataReady.sessions && !sessionsError) writeCache('sessions', sessions);
   const now = new Date();
   const todayKey = dayKey(now);
   const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
@@ -3293,4 +3438,17 @@ if (!isConfigured) {
   showScreen('loading');
   $('loading-screen').insertAdjacentHTML('beforeend',
     '<p class="muted" style="grid-row:2">Falta configurar Supabase en <code>config.js</code>.</p>');
+}
+
+// ---------- Modo sin conexión y apertura instantánea (service worker) ----------
+// Solo funciona servido por internet (GitHub Pages), no abriendo el archivo directamente.
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service worker:', err));
+  });
+  // Hay una versión nueva ya descargada: se ofrece recargar
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.type === 'app-updated') $('update-toast').hidden = false;
+  });
+  $('btn-update').addEventListener('click', () => location.reload());
 }

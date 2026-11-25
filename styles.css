@@ -1936,7 +1936,7 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
   height: 76px;
   margin: 0 auto 14px;
   border-radius: 50%;
-  background: var(--bg) url("icon.png.jpg?v=2") center / cover no-repeat;
+  background: var(--bg) url("jack-240.jpg") center / cover no-repeat;
   box-shadow: 0 0 0 4px var(--surface), 0 0 0 5px var(--line);
   opacity: 0.9;
 }
@@ -2121,4 +2121,93 @@ body.tour-intro .pet-wave-paw { display: inline; animation: paw-wave 1.3s ease-i
 @media (prefers-reduced-motion: reduce) {
   body.tour-intro .pet-wave-paw, body.tour-intro .pet-head { animation: none; }
   body.touring .pet { transition: none; }
+}
+
+/* ---------- Rendimiento: portadas como <img> perezosas ---------- */
+.book.has-image { background: color-mix(in srgb, var(--text) 7%, var(--bg)); }
+.book-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.book.is-loaded .book-img { opacity: 1; }
+/* Jack: capa propia para que sus animaciones no obliguen a repintar la página que tiene detrás,
+   y un brillo blanco más ligero (2 sombras en vez de 3) */
+.pet-dog {
+  will-change: transform;
+  filter: drop-shadow(0 0 1.6px rgba(255, 255, 255, 0.95)) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.2));
+}
+.pet-tail { animation-duration: 2s; }
+
+/* Aviso de versión nueva */
+.update-toast {
+  position: fixed;
+  z-index: 40;
+  left: max(14px, calc(50% - 240px + 14px));
+  right: max(14px, calc(50% - 240px + 14px));
+  bottom: calc(var(--tabbar-h) + 14px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 10px 10px 16px;
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22), inset 0 0 0 1px var(--line);
+  font-size: 14px;
+  animation: sheet-up 0.3s ease;
+}
+.update-toast[hidden] { display: none; }
+
+/* ---------- Barra inferior: fondo resaltado que ocupa toda la opción y se desliza ---------- */
+.tab-indicator {
+  position: absolute;
+  top: 6px;
+  left: 0;
+  width: var(--ind-w, 25%);
+  height: calc(var(--tabbar-h) - 12px);
+  border-radius: 16px;
+  background: var(--accent-soft);
+  transform: translateX(var(--ind-x, 0));
+  pointer-events: none;
+}
+.tabbar.is-ready .tab-indicator {
+  transition: transform 0.38s cubic-bezier(0.2, 0.85, 0.25, 1), width 0.38s cubic-bezier(0.2, 0.85, 0.25, 1);
+}
+.tab { position: relative; z-index: 1; }
+/* Ya no hay píldora detrás de cada icono */
+.tab > svg,
+.tab > .tab-icon,
+.tab.is-active > svg,
+.tab.is-active > .tab-icon { background: none; padding: 4px 0; }
+@media (prefers-reduced-motion: reduce) { .tabbar.is-ready .tab-indicator { transition: none; } }
+
+/* ---------- Transición entre pestañas, deslizando hacia el lado de la pestaña elegida ---------- */
+.view.is-active { animation: none; view-transition-name: page; }
+/* La cabecera y la barra de abajo se quedan quietas: solo se mueve el contenido */
+::view-transition-old(root),
+::view-transition-new(root) { animation: none; }
+::view-transition-group(page) { animation: none; }
+::view-transition-old(page) { animation: page-out-forward 0.42s cubic-bezier(0.32, 0.72, 0, 1) both; }
+::view-transition-new(page) { animation: page-in-forward 0.42s cubic-bezier(0.32, 0.72, 0, 1) both; }
+:root[data-nav-dir="back"]::view-transition-old(page) { animation-name: page-out-back; }
+:root[data-nav-dir="back"]::view-transition-new(page) { animation-name: page-in-back; }
+/* Como un carrusel: la nueva empuja a la anterior de lado a lado */
+@keyframes page-out-forward { to { transform: translateX(-100%); } }
+@keyframes page-in-forward { from { transform: translateX(100%); } }
+@keyframes page-out-back { to { transform: translateX(100%); } }
+@keyframes page-in-back { from { transform: translateX(-100%); } }
+/* Navegadores sin transiciones de vista: solo entra la pantalla nueva */
+.view.is-active.enter-forward { animation: page-in-forward 0.42s cubic-bezier(0.32, 0.72, 0, 1); }
+.view.is-active.enter-back { animation: page-in-back 0.42s cubic-bezier(0.32, 0.72, 0, 1); }
+.content { overflow-x: clip; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(page), ::view-transition-new(page) { animation: none; }
+  .view.is-active.enter-forward, .view.is-active.enter-back { animation: none; }
 }
