@@ -134,19 +134,25 @@ async function loadBooks() {
 }
 
 // ¿Se ha ejecutado supabase/mejoras.sql? Si no, la app sigue funcionando sin las columnas nuevas.
-let hasExtras = true;
+// Se comprueba cada columna por separado: si falta solo una (p. ej. «owned», que llegó más tarde),
+// lo demás (páginas, saga, categoría) sigue funcionando.
+let hasExtras = true;   // páginas, saga y categoría
+let hasOwned = true;    // «Lo tengo»
 const EXTRA_FIELDS = ['total_pages', 'current_page', 'series', 'series_number', 'category', 'owned'];
+let missingCols = new Set();
 let dataReady = { books: false, sessions: false, quotes: false };
 
 async function checkExtras() {
-  const { error } = await db.from('books').select('total_pages, owned').limit(1);
-  hasExtras = !error;
-  if (error) console.warn('Falta ejecutar supabase/mejoras.sql:', error.message);
+  const results = await Promise.all(EXTRA_FIELDS.map((c) => db.from('books').select(c).limit(1)));
+  missingCols = new Set(EXTRA_FIELDS.filter((c, i) => results[i].error));
+  hasExtras = !missingCols.has('total_pages') && !missingCols.has('current_page');
+  hasOwned = !missingCols.has('owned');
+  if (missingCols.size) console.warn('Falta ejecutar (otra vez) supabase/mejoras.sql. Columnas que faltan:', [...missingCols]);
 }
 function cleanBook(payload) {
-  if (hasExtras) return payload;
+  if (!missingCols.size) return payload;
   const p = { ...payload };
-  EXTRA_FIELDS.forEach((k) => delete p[k]);
+  missingCols.forEach((k) => delete p[k]);
   return p;
 }
 
@@ -284,12 +290,12 @@ function createBookCard(book, onClick, { badge = false, badgeTitle = 'En tu bibl
     // y en tamaño mediano, que para la cuadrícula sobra (pesa ~2,5 veces menos que la grande)
     const img = document.createElement('img');
     img.className = 'book-img';
-    img.crossOrigin = 'anonymous'; // Open Library lo permite: así el móvil puede guardarlas bien
     img.src = coverSize(book.cover_url, 'M');
     img.alt = '';
     img.loading = 'lazy';
     img.decoding = 'async';
     img.addEventListener('load', () => cover.classList.add('is-loaded'), { once: true });
+    // Si no carga, queda la portada de color (nunca el icono de imagen rota)
     img.addEventListener('error', () => img.remove(), { once: true });
     cover.appendChild(img);
   } else {
@@ -507,10 +513,12 @@ function renderCatalog() {
     peek.setAttribute('aria-hidden', 'true');
     items.filter((it) => it.cover_url).slice(0, 3).forEach((it) => {
       const img = document.createElement('img');
-      img.crossOrigin = 'anonymous';
       img.src = coverSize(it.cover_url, 'S');
       img.alt = '';
       img.loading = 'lazy';
+      img.decoding = 'async';
+      // Nunca el icono de imagen rota: si no carga, se quita
+      img.addEventListener('error', () => img.remove(), { once: true });
       peek.appendChild(img);
     });
     h.append(name, count, peek, chevron);
@@ -643,35 +651,9 @@ function placeTabIndicator() {
 window.addEventListener('resize', placeTabIndicator);
 document.fonts?.ready.then(placeTabIndicator); // al cargar la fuente cambia el ancho de los nombres
 
-// Cambio de pestaña. Con { animate: true } (al tocar la barra) la pantalla se desliza hacia
-// el lado de la pestaña elegida, como en Instagram. Desde el código (guía de Jack, avisos…)
-// el cambio es inmediato, porque justo después se mide la pantalla nueva.
-const VIEW_ORDER = ['library', 'explore', 'reading', 'profile'];
-
-function goTo(view, { animate = false } = {}) {
-  const prev = currentView;
-  const moving = animate && prev && prev !== view
-    && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!moving) return switchView(view);
-  const dir = VIEW_ORDER.indexOf(view) < VIEW_ORDER.indexOf(prev) ? 'back' : 'forward';
-  // Se sube arriba antes de la animación (como ya pasaba al cambiar de pestaña)
-  window.scrollTo(0, 0);
-  if (document.startViewTransition) {
-    // La pantalla de antes sale y la nueva entra a la vez (iOS 18 o posterior)
-    document.documentElement.dataset.navDir = dir;
-    document.startViewTransition(() => switchView(view));
-  } else {
-    // Navegadores más antiguos: solo entra deslizándose la nueva
-    switchView(view);
-    const el = document.getElementById(`view-${view}`);
-    el.classList.remove('enter-forward', 'enter-back');
-    void el.offsetWidth;
-    el.classList.add(`enter-${dir}`);
-  }
-}
-
-function switchView(view) {
+function goTo(view) {
   currentView = view;
+  document.body.dataset.view = view; // p. ej. el botón + solo se ve en la Biblioteca
   document.querySelectorAll('.view').forEach((v) => {
     v.classList.toggle('is-active', v.id === `view-${view}`);
   });
@@ -684,33 +666,8 @@ function switchView(view) {
 }
 
 document.querySelectorAll('[data-goto]').forEach((btn) => {
-  btn.addEventListener('click', () => goTo(btn.dataset.goto, { animate: true }));
+  btn.addEventListener('click', () => goTo(btn.dataset.goto));
 });
-
-// Deslizar el dedo a izquierda/derecha sobre el contenido cambia a la pestaña de al lado.
-// No se activa en las filas que ya se desplazan de lado ni mientras se escribe.
-const SWIPE_IGNORE = '.shelf, .wardrobe, .series-strip, .chart-plot, .lookup-results, input, textarea, select';
-let swipeStart = null;
-const contentEl = document.querySelector('.content');
-contentEl.addEventListener('touchstart', (e) => {
-  swipeStart = null;
-  if (e.touches.length !== 1 || e.target.closest(SWIPE_IGNORE)) return;
-  const t = e.touches[0];
-  swipeStart = { x: t.clientX, y: t.clientY, time: Date.now() };
-}, { passive: true });
-contentEl.addEventListener('touchend', (e) => {
-  if (!swipeStart) return;
-  const t = e.changedTouches[0];
-  const dx = t.clientX - swipeStart.x;
-  const dy = t.clientY - swipeStart.y;
-  const quick = Date.now() - swipeStart.time < 600;
-  swipeStart = null;
-  // Gesto claramente horizontal, de al menos 70 px y rápido
-  if (!quick || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.8) return;
-  if (document.body.classList.contains('touring') || document.querySelector('dialog[open]')) return;
-  const next = VIEW_ORDER[VIEW_ORDER.indexOf(currentView) + (dx < 0 ? 1 : -1)];
-  if (next) goTo(next, { animate: true });
-}, { passive: true });
 
 // ---------- Búsqueda ----------
 const searchBar = $('search-bar');
@@ -856,7 +813,7 @@ function openBookDialog(book = null) {
   lookupStatus('');
   // Los campos nuevos solo si se ejecutó mejoras.sql
   ['series', 'series_number', 'total_pages', 'current_page', 'category'].forEach((name) => {
-    bookForm[name].closest('.field').hidden = !hasExtras;
+    bookForm[name].closest('.field').hidden = missingCols.has(name);
   });
 
   if (book) {
@@ -888,7 +845,7 @@ function openBookDialog(book = null) {
 // «Deseado» significa que aún no lo tiene: el interruptor «Lo tengo» se oculta
 function syncOwnedField() {
   const wish = bookForm.status.value === 'wishlist';
-  $('owned-field').hidden = !hasExtras || wish;
+  $('owned-field').hidden = !hasOwned || wish;
   if (wish) bookForm.owned.checked = false;
 }
 bookForm.status.addEventListener('change', () => {
@@ -1086,8 +1043,16 @@ function renderDetail() {
   const cover = $('detail-cover');
   cover.textContent = '';
   if (b.cover_url) {
-    cover.style.setProperty('--cover', `url("${encodeURI(b.cover_url)}")`);
+    // Primero la mediana (que normalmente ya está guardada de la cuadrícula) y, en cuanto llega, la grande
+    const quick = coverSize(b.cover_url, 'M');
+    const big = coverSize(b.cover_url, 'L');
+    cover.style.setProperty('--cover', `url("${encodeURI(quick)}")`);
     cover.style.removeProperty('--ink');
+    if (big !== quick) {
+      const pre = new Image();
+      pre.onload = () => { if (detailBook?.id === b.id) cover.style.setProperty('--cover', `url("${encodeURI(big)}")`); };
+      pre.src = big;
+    }
   } else {
     const color = b.cover_color || COVER_COLORS[0];
     cover.style.setProperty('--cover', color);
@@ -1097,6 +1062,27 @@ function renderDetail() {
   $('detail-title').textContent = b.title;
   $('detail-author').textContent = b.author || '';
   $('detail-author').hidden = !b.author;
+
+  // Fondo: la propia portada difuminada (o su color)
+  const bg = $('detail-hero-bg');
+  bg.style.background = b.cover_url
+    ? `center / cover no-repeat url("${encodeURI(coverSize(b.cover_url, 'M'))}")`
+    : (b.cover_color || COVER_COLORS[0]);
+
+  // Etiquetas: categoría, saga y páginas
+  const tags = $('detail-tags');
+  tags.innerHTML = '';
+  [
+    categoryOf(b),
+    b.series ? `${b.series}${b.series_number != null ? ` #${Number(b.series_number)}` : ''}` : '',
+    b.total_pages ? `${b.total_pages} páginas` : '',
+  ].filter(Boolean).forEach((text) => {
+    const t = document.createElement('span');
+    t.className = 'detail-tag';
+    t.textContent = text;
+    tags.appendChild(t);
+  });
+  tags.hidden = !tags.children.length;
 
   // Estrellas
   const stars = $('detail-stars');
@@ -1128,7 +1114,7 @@ function renderDetail() {
   if (showFinished) $('detail-finished').textContent = formatDateOnly(b.finished_at);
 
   // ¿Lo tiene? (no aplica a los deseados)
-  $('detail-owned-row').hidden = !hasExtras || b.status === 'wishlist';
+  $('detail-owned-row').hidden = !hasOwned || b.status === 'wishlist';
   $('detail-owned').checked = isOwned(b);
 
   renderDetailProgress();
@@ -1250,8 +1236,8 @@ document.querySelectorAll('#detail-status .segment').forEach((seg) => {
     // Al marcarlo como leído se pone la fecha de hoy (si no tenía)
     if (changes.status === 'read' && !detailBook.finished_at) changes.finished_at = todayISO();
     // Deseado = aún no lo tiene; al salir de deseados se entiende que ya lo tiene
-    if (hasExtras && changes.status === 'wishlist') changes.owned = false;
-    else if (hasExtras && detailBook.status === 'wishlist') changes.owned = true;
+    if (hasOwned && changes.status === 'wishlist') changes.owned = false;
+    else if (hasOwned && detailBook.status === 'wishlist') changes.owned = true;
     saveDetail(changes);
   });
 });
@@ -1329,10 +1315,20 @@ detailDialog.addEventListener('close', () => {
   detailBook = null;
 });
 
-$('btn-detail-edit').addEventListener('click', () => {
-  const book = books.find((b) => b.id === detailBook?.id) || detailBook;
+// La ficha es solo de consulta: los datos del libro no se editan aquí, pero sí se puede eliminar
+$('btn-detail-delete').addEventListener('click', async () => {
+  const book = detailBook;
+  if (!book || !confirm(`¿Eliminar «${book.title}» de tu biblioteca? Se borrarán también sus citas. No se puede deshacer.`)) return;
+  const { error } = await db.from('books').delete().eq('id', book.id);
+  if (error) {
+    console.error(error);
+    $('detail-error').textContent = `No se pudo eliminar. ${explainError(error, 'schema.sql')}`;
+    $('detail-error').hidden = false;
+    return;
+  }
+  books = books.filter((b) => b.id !== book.id);
   detailDialog.close();
-  if (book) openBookDialog(book);
+  refresh();
 });
 
 $('btn-detail-read').addEventListener('click', () => {
@@ -1675,13 +1671,19 @@ function updateClock() {
 }
 
 // Anillo: lo leído hoy (guardado + lectura en curso) respecto al objetivo diario
+// El círculo empieza vacío en cada lectura y se llena con el tiempo de esta lectura
+// (lleno = tiempo del objetivo diario). Debajo, «Hoy X / Y min» sigue sumando todo el día.
 function renderRing() {
-  const total = todaySeconds + Math.round(elapsedMs() / 1000);
+  const session = Math.round(elapsedMs() / 1000);
+  const total = todaySeconds + session;
   const goal = goalMinutes();
-  const p = Math.min(1, total / (goal * 60));
+  const p = Math.min(1, session / (goal * 60));
   $('ring-progress').style.strokeDashoffset = String(RING_LENGTH * (1 - p));
+  $('ring-progress').style.opacity = p > 0 ? '1' : '0'; // sin el puntito del extremo redondeado a 0
   $('timer-goal').textContent = `Hoy ${Math.floor(total / 60)} / ${goal} min`;
-  document.querySelector('.timer-ring').classList.toggle('is-complete', p >= 1);
+  const ring = document.querySelector('.timer-ring');
+  ring.classList.toggle('is-full', p >= 1);                          // círculo completo
+  ring.classList.toggle('is-complete', total >= goal * 60);         // objetivo del día cumplido
 }
 
 // true solo la primera vez que se alcanza el objetivo cada día
@@ -1908,26 +1910,54 @@ $('btn-timer-finish').addEventListener('click', async () => {
         : `¡Muy bien! Has leído ${fmtDuration(seconds)}${title ? ` de «${title}»` : ''}. 🐾`,
     });
   }
-  // Apuntar por qué página va
-  if (finishedBook && hasExtras && finishedBook.status !== 'read') {
-    setTimeout(() => openProgressDialog(books.find((b) => b.id === finishedBook.id) || finishedBook), 500);
+  // Apuntar por qué página va: se pregunta siempre al terminar (si la lectura era «sin libro
+  // concreto», en la ventana se elige el libro). Y queda un botón por si se cierra sin apuntarla.
+  noteBookId = finishedBook && finishedBook.status !== 'read' ? finishedBook.id : null;
+  $('btn-note-page').hidden = !books.length;
+  if (books.length && (!finishedBook || finishedBook.status !== 'read')) {
+    setTimeout(() => openProgressDialog(books.find((b) => b.id === noteBookId) || null), 500);
   }
 });
+
+let noteBookId = null; // libro de la última lectura terminada
+$('btn-note-page').addEventListener('click', () => openProgressDialog(books.find((b) => b.id === noteBookId) || null));
+$('btn-timer-start').addEventListener('click', () => { $('btn-note-page').hidden = true; });
 
 // ---------- Progreso por páginas ----------
 const progressDialog = $('progress-dialog');
 const progressForm = $('progress-form');
 let progressBookId = null;
 
-function openProgressDialog(book) {
-  progressBookId = book.id;
+// Sin libro (lectura «Sin libro concreto»): se elige en la propia ventana
+function openProgressDialog(book = null) {
   progressForm.reset();
   $('progress-error').hidden = true;
-  $('progress-book').textContent = book.title;
-  progressForm.current_page.value = book.current_page ?? '';
-  progressForm.total_pages.value = book.total_pages ?? '';
+  const pick = $('progress-pick');
+  pick.hidden = Boolean(book);
+  if (!book) {
+    const sel = $('progress-book-select');
+    sel.innerHTML = '';
+    [['reading', 'Leyendo'], ['pending', 'Pendientes'], ['read', 'Leídos']].forEach(([status, label]) => {
+      const list = books.filter((b) => b.status === status).sort(byTitle);
+      if (!list.length) return;
+      const g = document.createElement('optgroup');
+      g.label = label;
+      list.forEach((b) => { const o = document.createElement('option'); o.value = b.id; o.textContent = b.title; g.appendChild(o); });
+      sel.appendChild(g);
+    });
+    if (!sel.options.length) return; // no hay libros en la biblioteca
+    sel.onchange = () => fillProgress(books.find((b) => b.id === sel.value));
+    book = books.find((b) => b.id === sel.value);
+  }
+  fillProgress(book);
   progressDialog.showModal();
   setTimeout(() => progressForm.current_page.focus(), 50);
+}
+function fillProgress(book) {
+  progressBookId = book.id;
+  $('progress-book').textContent = $('progress-pick').hidden ? book.title : '';
+  progressForm.current_page.value = book.current_page ?? '';
+  progressForm.total_pages.value = book.total_pages ?? '';
 }
 
 $('btn-close-progress').addEventListener('click', () => progressDialog.close());
@@ -1940,12 +1970,13 @@ progressForm.addEventListener('submit', async (e) => {
   const cur = intOrNull(progressForm.current_page.value);
   const total = intOrNull(progressForm.total_pages.value) || null;
   const showErr = (msg) => { $('progress-error').textContent = msg; $('progress-error').hidden = false; };
+  if (!hasExtras) return showErr('Para guardar la página hay que ejecutar supabase/mejoras.sql en Supabase (SQL Editor).');
   if (cur == null || cur < 0) return showErr('Escribe la página por la que vas.');
   if (total && cur > total) return showErr('La página no puede ser mayor que el total.');
 
   const changes = { current_page: cur, total_pages: total };
   if (cur > 0 && (book.status === 'pending' || book.status === 'wishlist')) changes.status = 'reading';
-  if (book.status === 'wishlist' && cur > 0 && hasExtras) changes.owned = true;
+  if (book.status === 'wishlist' && cur > 0 && hasOwned) changes.owned = true;
   // Última página: libro terminado
   if (total && cur >= total && book.status !== 'read') {
     changes.status = 'read';
@@ -1956,6 +1987,7 @@ progressForm.addEventListener('submit', async (e) => {
   try {
     const data = await updateBook(book.id, changes);
     progressDialog.close();
+    $('btn-note-page').hidden = true; // ya apuntada
     if (detailBook && detailBook.id === data.id) {
       detailBook = data;
       renderDetail();
@@ -2066,7 +2098,15 @@ function renderSessions() {
     const dur = document.createElement('div');
     dur.className = 'session-duration';
     dur.textContent = fmtDuration(s.duration_seconds);
-    li.append(info, dur);
+    // Miniatura de la portada (o un icono si es lectura libre o no tiene portada)
+    const thumb = document.createElement('span');
+    thumb.className = 'session-cover';
+    thumb.setAttribute('aria-hidden', 'true');
+    const b = s.book_id && books.find((x) => x.id === s.book_id);
+    if (b?.cover_url) thumb.style.backgroundImage = `url("${encodeURI(coverSize(b.cover_url, 'M'))}")`;
+    else if (b) thumb.style.background = b.cover_color || COVER_COLORS[0];
+    else thumb.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 1.5M10 3h4M12 3v3"/></svg>';
+    li.append(thumb, info, dur);
     list.appendChild(li);
   });
   checkAchievements();

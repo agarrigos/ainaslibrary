@@ -1165,7 +1165,7 @@ body.pet-reading:not(.pet-hidden) .content {
   stroke-dashoffset: 339.292;
   transition: stroke-dashoffset 0.8s ease, stroke 0.3s ease;
 }
-.timer-ring.is-complete .ring-progress { stroke: var(--success); }
+.timer-ring.is-full .ring-progress { stroke: var(--success); }
 .timer-center {
   position: absolute;
   inset: 0;
@@ -2188,26 +2188,195 @@ body.tour-intro .pet-wave-paw { display: inline; animation: paw-wave 1.3s ease-i
 .tab.is-active > .tab-icon { background: none; padding: 4px 0; }
 @media (prefers-reduced-motion: reduce) { .tabbar.is-ready .tab-indicator { transition: none; } }
 
-/* ---------- Transición entre pestañas, deslizando hacia el lado de la pestaña elegida ---------- */
-.view.is-active { animation: none; view-transition-name: page; }
-/* La cabecera y la barra de abajo se quedan quietas: solo se mueve el contenido */
-::view-transition-old(root),
-::view-transition-new(root) { animation: none; }
-::view-transition-group(page) { animation: none; }
-::view-transition-old(page) { animation: page-out-forward 0.42s cubic-bezier(0.32, 0.72, 0, 1) both; }
-::view-transition-new(page) { animation: page-in-forward 0.42s cubic-bezier(0.32, 0.72, 0, 1) both; }
-:root[data-nav-dir="back"]::view-transition-old(page) { animation-name: page-out-back; }
-:root[data-nav-dir="back"]::view-transition-new(page) { animation-name: page-in-back; }
-/* Como un carrusel: la nueva empuja a la anterior de lado a lado */
-@keyframes page-out-forward { to { transform: translateX(-100%); } }
-@keyframes page-in-forward { from { transform: translateX(100%); } }
-@keyframes page-out-back { to { transform: translateX(100%); } }
-@keyframes page-in-back { from { transform: translateX(-100%); } }
-/* Navegadores sin transiciones de vista: solo entra la pantalla nueva */
-.view.is-active.enter-forward { animation: page-in-forward 0.42s cubic-bezier(0.32, 0.72, 0, 1); }
-.view.is-active.enter-back { animation: page-in-back 0.42s cubic-bezier(0.32, 0.72, 0, 1); }
-.content { overflow-x: clip; }
-@media (prefers-reduced-motion: reduce) {
-  ::view-transition-old(page), ::view-transition-new(page) { animation: none; }
-  .view.is-active.enter-forward, .view.is-active.enter-back { animation: none; }
+/* ---------- Jack con patas: sentado (como en el icono) y tumbado al dormir ---------- */
+.pet-dog .fur-dark { fill: #202023; }                       /* patas traseras: detrás */
+.pet-dog .leg-front { fill: #323237; stroke: #4a4a52; stroke-width: 0.9; stroke-linejoin: round; } /* delanteras: delante */
+.pet-dog .pet-ground { fill: rgba(0, 0, 0, 0.16); }
+.pose-sit, .pose-lie { transition: opacity 0.45s ease; }
+.pose-lie { opacity: 0; }
+.pet.is-lying .pose-sit { opacity: 0; }
+.pet.is-lying .pose-lie { opacity: 1; }
+/* Al tumbarse, la cabeza baja y se apoya sobre las patas */
+.pet.is-lying .pet-head-pose { transform: translate(-2px, 17px) rotate(-6deg); }
+.pet.is-lying .acc-scarf, .pet.is-lying .acc-bowtie { transform: translate(-2px, 15px) rotate(-6deg) scaleY(0.85); }
+.pet-ground { transition: transform 0.45s ease; transform-origin: 51px 95.5px; }
+.pet.is-lying .pet-ground { transform: scaleX(1.12); }
+@media (prefers-reduced-motion: reduce) { .pose-sit, .pose-lie, .pet-ground { transition: none; } }
+/* Leyendo: las patas delanteras sujetan el libro, así que no se dibujan también apoyadas en el suelo */
+.front-legs { transition: opacity 0.4s ease; }
+.pet.is-reading .front-legs { opacity: 0; }
+
+/* ---------- Lecturas recientes con el mismo estilo que Ajustes ---------- */
+.sessions-title { margin-top: 4px; }
+.sessions {
+  background: var(--bg);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent);
 }
+.sessions:empty { display: none; }
+.session {
+  gap: 12px;
+  min-height: 60px;
+  padding: 10px 16px 10px 12px;
+  border-bottom: 0;
+}
+.session + .session { border-top: 1px solid var(--line); }
+.session-info { flex: 1; }
+.session-cover {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 44px;
+  border-radius: 2px 5px 5px 2px;
+  background: color-mix(in srgb, var(--text) 7%, var(--surface)) center / cover no-repeat;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.14);
+  color: var(--muted);
+}
+.session-cover svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+.session-duration {
+  color: var(--accent);
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  font-size: 13px;
+}
+#sessions-empty {
+  padding: 16px;
+  background: var(--bg);
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent);
+  font-size: 14px;
+}
+
+/* Botón + : fijo en su sitio y solo en la Biblioteca (aparece con un pequeño «pop») */
+.fab { display: none; }
+body[data-view="library"] .fab { display: grid; animation: fab-in 0.25s ease; }
+@keyframes fab-in { from { opacity: 0; transform: scale(0.7); } }
+@media (prefers-reduced-motion: reduce) { body[data-view="library"] .fab { animation: none; } }
+
+/* Botón «Apuntar página» bajo el cronómetro (tras terminar una lectura) */
+.timer-page-btn { display: block; margin: 6px auto 0; font-size: 14px; color: var(--accent); text-decoration: none; font-weight: 500; }
+.timer-page-btn[hidden] { display: none; }
+
+/* ---------- Ficha del libro: mismo estilo que el resto (tarjetas como Ajustes) ---------- */
+.detail-sheet .sheet-body { gap: 18px; }
+/* Cabecera con la portada sobre su propia imagen difuminada */
+.detail-hero {
+  position: relative;
+  margin: -18px -20px 0;
+  padding: 22px 20px 4px;
+  overflow: hidden;
+}
+.detail-hero-bg {
+  position: absolute;
+  inset: -40px;
+  filter: blur(30px) saturate(1.25);
+  opacity: 0.5;
+  transform: scale(1.1);
+  -webkit-mask-image: linear-gradient(to bottom, #000 35%, transparent 92%);
+  mask-image: linear-gradient(to bottom, #000 35%, transparent 92%);
+  pointer-events: none;
+}
+.detail-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  background: color-mix(in srgb, var(--surface) 75%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.detail-hero .detail-top { position: relative; z-index: 1; }
+.detail-hero .detail-cover {
+  width: 132px;
+  border-radius: 4px 9px 9px 4px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3), 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+.detail-hero .detail-top h2 { font-size: 25px; margin: 18px 0 4px; }
+.detail-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 12px; }
+.detail-tags[hidden] { display: none; }
+.detail-tag {
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 12px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* Grupos con título en mayúsculas y tarjeta redondeada */
+.detail-group .settings-title { margin-bottom: 8px; }
+.detail-card .detail-row {
+  padding: 12px 16px;
+  border-bottom: 0;
+  min-height: 52px;
+}
+.detail-card .detail-row-block { gap: 10px; }
+.detail-card .detail-label { color: var(--text); font-size: 15px; }
+.detail-card .detail-label small { color: var(--muted); }
+.detail-card .detail-value { color: var(--muted); font-weight: 400; }
+.detail-card .detail-progress .detail-value { color: var(--text); font-weight: 500; }
+/* La pista de las pestañas de estado se distingue del fondo de la tarjeta */
+.detail-card .segmented { background: color-mix(in srgb, var(--text) 7%, var(--bg)); margin: 0; }
+.detail-card-pad { padding: 14px 16px; }
+.detail-card-pad > * + * { border-top: 0; }
+.detail-card .review-input,
+.detail-card .quote-form textarea,
+.detail-card .quote-form input { background: var(--surface); }
+.detail-card .quote { background: var(--surface); }
+.detail-card .series-next { margin-top: 10px; }
+
+/* Acciones */
+.detail-sheet #btn-detail-read { margin-top: 4px; }
+.detail-delete {
+  align-self: center;
+  margin: 0;
+  color: var(--danger);
+  text-decoration: none;
+  font-size: 14px;
+}
+.detail-delete:hover { text-decoration: underline; }
+.detail-close:focus-visible { outline: none; }
+.detail-card .quote-form { padding: 0; gap: 8px; }
+
+/* ---------- Logo: sello (libro con la huella de Jack) + nombre en dos líneas ---------- */
+.brand-logo { display: flex; align-items: center; gap: 10px; font-size: inherit; letter-spacing: 0; }
+.brand-mark { width: 36px; height: 36px; flex: none; filter: drop-shadow(0 3px 6px color-mix(in srgb, var(--accent) 35%, transparent)); }
+.brand-mark-bg { fill: var(--accent); }
+.brand-mark-page { fill: var(--surface); }
+.brand-mark-line { fill: none; stroke: color-mix(in srgb, var(--accent) 35%, var(--surface)); stroke-width: 1.1; stroke-linecap: round; }
+.brand-mark-paw { fill: var(--accent); }
+.brand-mark-ribbon { fill: var(--star); }
+.brand-text { display: flex; flex-direction: column; line-height: 1; }
+.brand-name {
+  font-family: var(--serif);
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--text);
+}
+.brand-sub {
+  margin-top: 3px;
+  padding-left: 1px;
+  font-family: var(--sans);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.38em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+/* Pantallas de carga e inicio de sesión: centrado y más grande, sin el sello (ya está la foto de Jack) */
+.brand-logo.is-stacked { justify-content: center; text-align: center; }
+.brand-logo.is-stacked .brand-text { align-items: center; }
+.brand-logo.is-stacked .brand-name { font-size: 32px; }
+.brand-logo.is-stacked .brand-sub { font-size: 11px; margin-top: 6px; padding-left: 0.38em; }
+/* El sello no usa el trazo de los iconos y sus páginas son siempre claras (también en modo oscuro) */
+.brand-mark, .brand-mark * { stroke: none; }
+.brand-mark .brand-mark-line { stroke: color-mix(in srgb, var(--accent) 40%, #fbf6ec); stroke-width: 1.1; }
+.brand-mark .brand-mark-page { fill: #fbf6ec; }

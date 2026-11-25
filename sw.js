@@ -8,7 +8,7 @@
 
 const SHELL = 'shell-v1';
 const RUNTIME = 'runtime-v1';
-const COVERS = 'covers-v1';
+const COVERS = 'covers-v2'; // v2: se vacía la caché anterior de portadas
 const MAX_COVERS = 400;
 
 const SHELL_FILES = [
@@ -123,7 +123,8 @@ async function cacheFirst(req, name) {
 async function cover(req) {
   const cache = await caches.open(COVERS);
   const cached = await cache.match(req);
-  if (cached) return cached;
+  // Una copia «opaca» no sirve para una petición que pide permisos (CORS): el navegador la rechazaría
+  if (cached && !(cached.type === 'opaque' && req.mode === 'cors')) return cached;
   try {
     const res = await fetch(req);
     if (res && (res.ok || res.type === 'opaque')) {
