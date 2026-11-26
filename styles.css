@@ -2380,3 +2380,130 @@ body[data-view="library"] .fab { display: grid; animation: fab-in 0.25s ease; }
 .brand-mark, .brand-mark * { stroke: none; }
 .brand-mark .brand-mark-line { stroke: color-mix(in srgb, var(--accent) 40%, #fbf6ec); stroke-width: 1.1; }
 .brand-mark .brand-mark-page { fill: #fbf6ec; }
+
+/* Explorar: el número de libros va a la derecha, junto a las portadas en abanico */
+.catalog-list .category-count { margin-left: auto; }
+.catalog-list .category-peek { margin-left: 2px; }
+.catalog-list .category.is-open .category-chevron { margin-left: 4px; }
+.catalog-list .category-peek { min-width: 62px; justify-content: center; }
+
+/* ---------- Explorar: Libros / Autores ---------- */
+.explore-modes { grid-template-columns: repeat(2, 1fr); margin-bottom: 16px; }
+#explore-books[hidden], #explore-authors[hidden] { display: none; }
+.author-search { margin-bottom: 18px; }
+.author-block { margin-bottom: 22px; }
+.author-block .settings-title { margin-bottom: 8px; }
+.author-hint { margin: -4px 4px 10px; font-size: 13px; }
+.author-empty { margin: 0 4px; font-size: 14px; }
+.author-empty[hidden], .author-list[hidden], .author-sort[hidden] { display: none; }
+.author-sort { grid-template-columns: repeat(3, 1fr); margin-bottom: 10px; }
+
+.author-row { gap: 12px; min-height: 62px; padding: 10px 14px 10px 12px; text-align: left; }
+.author-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+}
+/* Podio: oro, plata y bronce */
+.author-badge.is-rank { color: var(--text); font-variant-numeric: lining-nums; }
+.author-badge.rank-1 { background: linear-gradient(145deg, #f3cf6b, #d9a521); color: #4a3405; box-shadow: 0 2px 8px rgba(217, 165, 33, 0.4); }
+.author-badge.rank-2 { background: linear-gradient(145deg, #e6e6e6, #b9bcc2); color: #3a3d42; box-shadow: none; }
+.author-badge.rank-3 { background: linear-gradient(145deg, #e8b48a, #c07c48); color: #4a260c; box-shadow: none; }
+.author-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.author-name { font-family: var(--serif); font-size: 17px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.author-meta { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.author-score {
+  flex: none;
+  padding: 4px 9px;
+  border-radius: 99px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #9c6f12;
+  background: color-mix(in srgb, var(--star) 20%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+:root[data-theme="dark"] .author-score { color: var(--star); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .author-score { color: var(--star); } }
+.author-score.is-empty { color: var(--muted); background: transparent; font-weight: 400; }
+.author-heart { flex: none; color: var(--accent); font-size: 15px; }
+.author-chevron { width: 16px; height: 16px; }
+
+/* Ficha del escritor */
+.author-hero { padding-bottom: 6px; }
+.author-photo {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 104px;
+  height: 104px;
+  margin: 6px auto 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 70%, #fff), var(--accent));
+  box-shadow: 0 0 0 4px var(--surface), 0 0 0 5.5px color-mix(in srgb, var(--accent) 45%, transparent), 0 10px 24px rgba(0, 0, 0, 0.18);
+  font-family: var(--serif);
+  font-size: 36px;
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+.author-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.author-photo img[hidden] { display: none; }
+.author-hero h2 { font-size: 25px; margin: 16px 0 4px; }
+.author-save { margin-top: 12px; }
+.author-save.is-saved { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.author-stats { margin: 0; }
+.author-stats .stat strong { font-size: 22px; }
+.author-filter { grid-template-columns: repeat(4, 1fr); margin-bottom: 14px; }
+.author-filter .segment { font-size: 13px; padding: 8px 2px; }
+.author-books { grid-template-columns: repeat(3, 1fr); gap: 12px; row-gap: 16px; }
+.author-books .caption-title { font-size: 12px; }
+.author-books .caption-author { font-size: 11px; }
+.author-stats .stat { align-items: center; text-align: center; }
+
+/* ---------- Explorar agrupado por saga ---------- */
+.catalog-list .saga-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.catalog-list .saga-author {
+  font-family: var(--sans, inherit);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.book-volume {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 2;
+  padding: 2px 6px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-ink);
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* ---------- Cambio de pestaña deslizando el dedo ---------- */
+/* Mientras se arrastra, nada se sale por los lados; al soltar, la vista nueva ya está en su sitio (sin animación de entrada) */
+body.is-swiping .content { overflow-x: clip; }
+body.is-swiping .view.is-active { will-change: transform; }
+body[data-swipe="drag"] .view { animation: none !important; }

@@ -103,6 +103,7 @@ db.auth.onAuthStateChange((event, session) => {
       loadQuoteCount();
       applyChallengeFromUser(session.user);
       applyFavoritesFromUser(session.user);
+      applyFavAuthorsFromUser(session.user);
     }, 0);
   }
 });
@@ -173,6 +174,8 @@ function afterBookChange(before, after) {
 
 let catalogLoaded = false;
 
+let catalogHasSeries = true; // se pone a false si la tabla catalog aún no tiene las columnas de saga
+
 async function loadCatalog() {
   const cached = readCache('catalog');
   if (cached) {
@@ -185,11 +188,31 @@ async function loadCatalog() {
     catalogLoaded = false;
     showCatalogSkeleton();
   }
-  const { data, error } = await db
-    .from('catalog')
-    .select('*')
-    .order('category')
-    .order('title');
+  // Supabase devuelve como mucho 1000 filas por petición: el catálogo (~4000 libros) se pide por bloques
+  // La saga (series, series_number) solo existe si se ejecutó supabase/sagas.sql: si falta, se pide sin ella
+  const PAGE = 1000;
+  let data = [];
+  let error = null;
+  let cols = catalogHasSeries ? 'id, title, author, cover_url, category, series, series_number' : 'id, title, author, cover_url, category';
+  for (let from = 0; ; from += PAGE) {
+    const res = await db
+      .from('catalog')
+      .select(cols)
+      .order('category')
+      .order('title')
+      .order('id')
+      .range(from, from + PAGE - 1);
+    if (res.error && catalogHasSeries && /series/i.test(res.error.message || '')) {
+      catalogHasSeries = false;
+      cols = 'id, title, author, cover_url, category';
+      data = [];
+      from = -PAGE;
+      continue;
+    }
+    if (res.error) { error = res.error; break; }
+    data = data.concat(res.data || []);
+    if (!res.data || res.data.length < PAGE) break;
+  }
 
   if (error) {
     console.error(error);
@@ -227,6 +250,8 @@ function refresh() {
   renderChallenge();
   renderFormLists();
   checkAchievements();
+  renderAuthorsView();
+  if (authorDialog.open) renderAuthorDialog();
 }
 
 // ¿Está este libro del catálogo ya en la biblioteca?
@@ -276,7 +301,7 @@ function inkFor(hex) {
 // Portadas de Open Library: -S (pequeña), -M (mediana), -L (grande)
 const coverSize = (url, size) => (url && url.includes('covers.openlibrary.org') ? url.replace(/-[SML]\.jpg$/, `-${size}.jpg`) : url);
 
-function createBookCard(book, onClick, { badge = false, badgeTitle = 'En tu biblioteca' } = {}) {
+function createBookCard(book, onClick, { badge = false, badgeTitle = 'En tu biblioteca', volume = null } = {}) {
   // Tarjeta: portada arriba + título y autor debajo
   const el = document.createElement('button');
   el.className = 'book-item';
@@ -326,6 +351,15 @@ function createBookCard(book, onClick, { badge = false, badgeTitle = 'En tu bibl
     bar.title = `${pct}% leído`;
     cover.appendChild(bar);
     el.setAttribute('aria-label', `${el.getAttribute('aria-label')}, ${pct}% leído`);
+  }
+
+  // Número de tomo (Explorar agrupado por saga)
+  if (volume != null) {
+    const v = document.createElement('span');
+    v.className = 'book-volume';
+    v.textContent = `#${Number(volume)}`;
+    cover.appendChild(v);
+    el.setAttribute('aria-label', `Tomo ${Number(volume)}: ${el.getAttribute('aria-label')}`);
   }
 
   if (badge) {
@@ -464,13 +498,34 @@ function renderCatalog() {
   }
   $('catalog-empty').hidden = true;
 
-  // Agrupar por categoría (el orden dentro de cada una ya viene de applyPrefs)
+  // Agrupar por categoría o por saga (el orden dentro de cada categoría ya viene de applyPrefs;
+  // dentro de una saga, siempre por número de tomo)
+  const bySaga = prefs.explore.group === 'series';
+  const sagaKey = (b) => (b.series ? `${b.series.trim().toLowerCase()}|${authorKeysOf(b)[0] || ''}` : '');
   const groups = new Map();
+  const sagaName = new Map();
   list.forEach((b) => {
-    if (!groups.has(b.category)) groups.set(b.category, []);
-    groups.get(b.category).push(b);
+    const key = bySaga ? sagaKey(b) : b.category;
+    if (!key) return;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(b);
+    if (bySaga && !sagaName.has(key)) sagaName.set(key, { name: b.series.trim(), author: splitAuthors(b.author)[0] || '' });
   });
-  const categories = [...groups.keys()].sort(collator.compare);
+  if (bySaga) {
+    // Una saga con un solo libro en Explorar no agrupa nada
+    for (const [k, items] of groups) {
+      if (items.length < 2) groups.delete(k);
+      else items.sort(bySeriesNumber);
+    }
+    if (!groups.size) {
+      showCatalogEmpty(q
+        ? 'Ninguna saga coincide con la búsqueda.'
+        : 'Todavía no hay sagas en Explorar.');
+      return;
+    }
+  }
+  const labelOf = (key) => (bySaga ? sagaName.get(key).name : key);
+  const categories = [...groups.keys()].sort((a, b) => collator.compare(labelOf(a), labelOf(b)));
 
   // Mismo aspecto que los desplegables de Ajustes: filas dentro de una tarjeta redondeada
   const catList = document.createElement('div');
@@ -500,10 +555,23 @@ function renderCatalog() {
     });
     const name = document.createElement('span');
     name.className = 'category-name';
-    name.textContent = category;
+    if (bySaga) {
+      const { name: saga, author } = sagaName.get(category);
+      name.classList.add('saga-name');
+      name.textContent = saga;
+      if (author) {
+        const sub = document.createElement('span');
+        sub.className = 'saga-author';
+        sub.textContent = author;
+        name.appendChild(sub);
+      }
+    } else {
+      name.textContent = category;
+    }
     const count = document.createElement('span');
     count.className = 'category-count';
     count.textContent = items.length;
+    if (bySaga) count.title = `${items.length} libros de la saga`;
     const chevron = document.createElement('span');
     chevron.className = 'category-chevron';
     chevron.innerHTML = '<svg viewBox="0 0 24 24" class="setting-chevron"><path d="M6 9l6 6 6-6"/></svg>';
@@ -531,6 +599,7 @@ function renderCatalog() {
       items.forEach((item) => {
         grid.appendChild(createBookCard(item, () => openCatalogDialog(item), {
           badge: isInLibrary(item),
+          volume: bySaga ? item.series_number : null,
         }));
       });
     };
@@ -669,12 +738,143 @@ document.querySelectorAll('[data-goto]').forEach((btn) => {
   btn.addEventListener('click', () => goTo(btn.dataset.goto));
 });
 
+// ---------- Deslizar el dedo para cambiar de pestaña ----------
+// La pestaña actual se mueve con el dedo y deja ver la siguiente; al soltar, se completa el cambio si
+// has deslizado lo suficiente (o rápido) y si no, vuelve a su sitio. Solo se engancha a gestos claramente
+// horizontales: el scroll vertical, los carruseles, los campos de texto, las ventanas y la guía no se tocan.
+const VIEW_ORDER = ['library', 'explore', 'reading', 'profile'];
+const SWIPE_EASE = 'transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1)';
+let drag = null;
+
+function scrollsSideways(el) {
+  for (; el && el !== document.body; el = el.parentElement) {
+    if (el.matches('input, textarea, select, [contenteditable], .no-swipe')) return true;
+    const ox = getComputedStyle(el).overflowX;
+    if ((ox === 'auto' || ox === 'scroll') && el.scrollWidth > el.clientWidth + 2) return true;
+  }
+  return false;
+}
+
+// Coloca la vista vecina a un lado, fija bajo la cabecera, como si ya estuviera arriba del todo
+function preparePeek(view) {
+  const el = $(`view-${view}`);
+  const box = document.querySelector('.content').getBoundingClientRect();
+  const top = document.querySelector('.topbar').getBoundingClientRect().bottom;
+  Object.assign(el.style, {
+    display: 'block', position: 'fixed', top: `${Math.max(0, top)}px`, left: `${box.left}px`,
+    width: `${box.width}px`, bottom: '0', padding: '20px 20px 0', overflow: 'hidden',
+    zIndex: '5', animation: 'none', willChange: 'transform', pointerEvents: 'none',
+  });
+  return el;
+}
+function resetPeek(el) { if (el) el.removeAttribute('style'); }
+
+function renderDrag() {
+  drag.raf = 0;
+  const i = VIEW_ORDER.indexOf(currentView);
+  const dir = drag.dx < 0 ? 1 : -1;
+  const target = VIEW_ORDER[i + dir];
+  // En la primera y la última pestaña, el gesto ofrece resistencia y no hay nada detrás
+  const dx = target ? drag.dx : drag.dx * 0.25;
+  if (target !== drag.target) {
+    resetPeek(drag.peek);
+    drag.peek = target ? preparePeek(target) : null;
+    drag.target = target;
+  }
+  drag.cur.style.transform = `translate3d(${dx}px, 0, 0)`;
+  if (drag.peek) drag.peek.style.transform = `translate3d(${dx + (dir > 0 ? drag.width : -drag.width)}px, 0, 0)`;
+}
+
+function endDrag(commit) {
+  const d = drag;
+  drag = null;
+  if (d.raf) cancelAnimationFrame(d.raf);
+  const dir = d.dx < 0 ? 1 : -1;
+  [d.cur, d.peek].forEach((el) => { if (el) el.style.transition = SWIPE_EASE; });
+  if (commit) {
+    d.cur.style.transform = `translate3d(${-dir * d.width}px, 0, 0)`;
+    d.peek.style.transform = 'translate3d(0, 0, 0)';
+  } else {
+    d.cur.style.transform = 'translate3d(0, 0, 0)';
+    if (d.peek) d.peek.style.transform = `translate3d(${dir * d.width}px, 0, 0)`;
+  }
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    document.body.dataset.swipe = 'drag'; // sin la animación de entrada: la vista ya está en su sitio
+    resetPeek(d.peek);
+    d.cur.removeAttribute('style');
+    if (commit) goTo(d.target);
+    document.body.classList.remove('is-swiping');
+    requestAnimationFrame(() => { delete document.body.dataset.swipe; });
+  };
+  d.cur.addEventListener('transitionend', finish, { once: true });
+  setTimeout(finish, 340);
+}
+
+document.addEventListener('touchstart', (e) => {
+  if (drag) return;
+  if (e.touches.length !== 1 || document.body.classList.contains('touring')) return;
+  if (document.querySelector('dialog[open]') || !e.target.closest('.content')) return;
+  if (scrollsSideways(e.target)) return;
+  const t = e.touches[0];
+  drag = { x: t.clientX, y: t.clientY, time: Date.now(), lock: null, dx: 0 };
+}, { passive: true });
+
+document.addEventListener('touchmove', (e) => {
+  if (!drag) return;
+  const t = e.touches[0];
+  const dx = t.clientX - drag.x;
+  const dy = t.clientY - drag.y;
+  if (!drag.lock) {
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+    if (Math.abs(dx) < Math.abs(dy) * 1.3) { drag = null; return; } // es scroll vertical
+    drag.lock = true;
+    drag.x = t.clientX; // empieza desde aquí para que no dé un salto
+    drag.cur = $(`view-${currentView}`);
+    drag.width = document.querySelector('.content').getBoundingClientRect().width;
+    document.body.classList.add('is-swiping');
+    return;
+  }
+  e.preventDefault();
+  drag.dx = t.clientX - drag.x;
+  if (!drag.raf) drag.raf = requestAnimationFrame(renderDrag);
+}, { passive: false });
+
+document.addEventListener('touchend', () => {
+  if (!drag) return;
+  if (!drag.lock) { drag = null; return; }
+  if (drag.raf) { cancelAnimationFrame(drag.raf); renderDrag(); } // aplica el último movimiento pendiente
+  const speed = Math.abs(drag.dx) / Math.max(1, Date.now() - drag.time);
+  const commit = Boolean(drag.peek) && (Math.abs(drag.dx) > drag.width * 0.33 || (speed > 0.45 && Math.abs(drag.dx) > 40));
+  endDrag(commit);
+}, { passive: true });
+
+document.addEventListener('touchcancel', () => { if (drag?.lock) endDrag(false); else drag = null; }, { passive: true });
+
 // ---------- Búsqueda ----------
 const searchBar = $('search-bar');
 const searchInput = $('search-input');
 
-const matches = (b, q) =>
-  b.title.toLowerCase().includes(q) || b.author.toLowerCase().includes(q);
+// Búsqueda por título, autor o saga, sin importar acentos, mayúsculas, signos ni el orden de las
+// palabras: «garcia marquez», «douglas penelope» o «jrr tolkien» encuentran lo que se espera.
+const searchText = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(/(\b\w)\.\s*(?=\w\b\.?)/g, '$1') // «j. r. r.» -> «jrr»
+  .replace(/[^a-z0-9ñ]+/g, ' ').trim();
+const searchIndex = new WeakMap(); // texto ya preparado de cada libro (no se recalcula en cada letra)
+function matches(b, q) {
+  const words = searchText(q).split(' ').filter(Boolean);
+  if (!words.length) return true;
+  let text = searchIndex.get(b);
+  if (!text) {
+    const author = searchText(b.author);
+    // también el autor sin espacios entre iniciales («j r r tolkien» -> «jrr tolkien»)
+    text = ` ${searchText(b.title)} ${author} ${author.replace(/\b(\w) (?=\w\b)/g, '$1')} ${searchText(b.series)} `;
+    searchIndex.set(b, text);
+  }
+  return words.every((w) => text.includes(w));
+}
 
 function applySearch() {
   const q = searchInput.value.trim().toLowerCase();
@@ -1522,7 +1722,7 @@ const VIEW_OPTIONS = {
   },
   explore: {
     sorts: ['title-asc', 'title-desc', 'author-asc'],
-    defaults: { sort: 'title-asc', hideOwned: false },
+    defaults: { sort: 'title-asc', hideOwned: false, group: 'category' },
   },
 };
 
@@ -1565,8 +1765,10 @@ function updateSortChips() {
   document.querySelectorAll('[data-sort-view]').forEach((chip) => {
     const view = chip.dataset.sortView;
     const n = activeFilterCount(view);
-    chip.querySelector('.chip-label').textContent =
-      `${SORTS[prefs[view].sort].short}${n ? ` · ${n} ${n === 1 ? 'filtro' : 'filtros'}` : ''}`;
+    const sagas = view === 'explore' && prefs.explore.group === 'series';
+    chip.querySelector('.chip-label').textContent = sagas
+      ? `Por saga${n ? ` · ${n} ${n === 1 ? 'filtro' : 'filtros'}` : ''}`
+      : `${SORTS[prefs[view].sort].short}${n ? ` · ${n} ${n === 1 ? 'filtro' : 'filtros'}` : ''}`;
     chip.classList.toggle('has-filters', n > 0);
     chip.setAttribute('aria-label', `Ordenar y filtrar. Ahora: ${SORTS[prefs[view].sort].label}` +
       (n ? `, ${n} ${n === 1 ? 'filtro activo' : 'filtros activos'}` : ''));
@@ -1619,6 +1821,17 @@ function renderSortDialog() {
     notes.addEventListener('change', () => { p.withNotes = notes.checked; onPrefsChange(); });
     filterWrap.appendChild(optionRow('Solo libros con notas', notes));
   } else {
+    const group = document.createElement('select');
+    [['category', 'Categoría'], ['series', 'Saga']].forEach(([v, t]) => {
+      const o = document.createElement('option');
+      o.value = v;
+      o.textContent = t;
+      group.appendChild(o);
+    });
+    group.value = p.group;
+    group.addEventListener('change', () => { p.group = group.value; onPrefsChange(); });
+    filterWrap.appendChild(optionRow('Agrupar por', group));
+
     const hide = document.createElement('input');
     hide.type = 'checkbox';
     hide.checked = p.hideOwned;
@@ -2161,6 +2374,13 @@ function petMessages() {
   if (goal && doneThisYear < goal) {
     const left = goal - doneThisYear;
     msgs.push({ text: `Te ${left === 1 ? 'queda 1 libro' : `quedan ${left} libros`} para tu reto de ${new Date().getFullYear()}. ¡Vamos a por ello! 💪` });
+  }
+  const topAuthor = authorRanking()[0];
+  if (topAuthor && topAuthor.avg != null) {
+    msgs.push({
+      text: `Tu escritor favorito es ${topAuthor.name}: le das un ★ ${fmtAvg(topAuthor.avg)} de media. ¿Buscamos otro libro suyo? 🐾`,
+      action: { label: 'Ver escritor', run: () => openAuthor(topAuthor.name) },
+    });
   }
   const wished = books.filter((b) => b.status === 'wishlist');
   if (wished.length) {
@@ -2775,7 +2995,9 @@ function lookupStatus(text) {
 
 // "Alas de sangre (Empíreo 1)" -> título "Alas de sangre", saga "Empíreo", tomo 1
 function splitSeries(title) {
-  const m = title.match(/^(.+?)\s*\(([^()]+?)[,\s]+(?:#|n[º°.]?\s*|vol\.?\s*|libro\s*|tomo\s*)?(\d+(?:[.,]5)?)\)\s*$/i);
+  // También «Nova - The Renegades #2»
+  const m = title.match(/^(.+?)\s*\(([^()]+?)[,\s]+(?:#|n[º°.]?\s*|vol\.?\s*|libro\s*|tomo\s*)?(\d+(?:[.,]5)?)\)\s*$/i)
+    || title.match(/^(.+?)\s+[-–]\s+(.+?)\s*#\s*(\d+(?:[.,]5)?)\s*$/);
   if (!m) return { title: title.trim() };
   return { title: m[1].trim(), series: m[2].trim(), series_number: Number(m[3].replace(',', '.')) };
 }
@@ -3388,8 +3610,15 @@ function renderForYou(q) {
     ? [...chosen].sort((a, b) => (auto.indexOf(a) + 1 || 99) - (auto.indexOf(b) + 1 || 99) || collator.compare(a, b))
     : auto;
   const per = chosen.length ? Math.max(2, Math.ceil(12 / cats.length)) : 0;
-  const picks = cats.flatMap((c, i) =>
-    dailyShuffle(catalog.filter((x) => x.category === c && !isInLibrary(x))).slice(0, per || (i === 0 ? 6 : 4)))
+  // Primero, libros que no tienes de tus escritores guardados y de los mejor valorados (nota ≥ 4)
+  const topAuthors = [...favAuthors(), ...authorRanking().filter((a) => a.avg >= 4).slice(0, 3).map((a) => a.name)];
+  const topKeys = new Set(topAuthors.map(authorKey));
+  const authorPicks = topKeys.size
+    ? dailyShuffle(catalog.filter((x) => authorKeysOf(x).some((k) => topKeys.has(k)) && !isInLibrary(x))).slice(0, 4)
+    : [];
+  const picks = [...authorPicks, ...cats.flatMap((c, i) =>
+    dailyShuffle(catalog.filter((x) => x.category === c && !isInLibrary(x))).slice(0, per || (i === 0 ? 6 : 4)))]
+    .filter((x, i, arr) => arr.indexOf(x) === i)
     .slice(0, 12);
 
   const chip = $('btn-fav-cats');
@@ -3412,9 +3641,12 @@ function renderForYou(q) {
     return;
   }
   const names = cats.filter((c) => picks.some((p) => p.category === c));
-  $('for-you-why').textContent = chosen.length
-    ? `De tus favoritas: ${joinNames(names)}`
-    : `Porque te gusta${names.length > 1 ? 'n' : ''} ${joinNames(names)}`;
+  $('for-you-why').textContent = (names.length
+    ? (chosen.length
+      ? `De tus favoritas: ${joinNames(names)}`
+      : `Porque te gusta${names.length > 1 ? 'n' : ''} ${joinNames(names)}`)
+    : 'De tus escritores favoritos')
+    + (authorPicks.length && names.length ? ', y de tus escritores favoritos' : '');
   picks.forEach((item) => list.appendChild(createBookCard(item, () => openCatalogDialog(item))));
 }
 
@@ -3469,6 +3701,366 @@ $('btn-fav-settings').addEventListener('click', () => { closeSettingGroups(null)
 $('btn-close-fav').addEventListener('click', () => favDialog.close());
 $('btn-fav-done').addEventListener('click', () => { saveFavorites(favDraft); favDialog.close(); });
 $('btn-fav-auto').addEventListener('click', () => { favDraft = []; saveFavorites([]); favDialog.close(); });
+
+// ---------- Autores: buscar escritores, guardarlos y ranking por tu nota media ----------
+// Un libro con varios autores («Terry Pratchett y Neil Gaiman») cuenta para cada uno.
+// Solo se parte por «,», «y», «and» o «&» si a ambos lados hay un nombre completo: así «Ortega y Gasset»
+// sigue siendo uno, «Williams, Stephen» pasa a «Stephen Williams» y «Charles H. Elliott, Ph.D.» pierde el título.
+const AUTHOR_TITLES = /^(ph\.?\s?d|m\.?\s?d|jr|sr|i{2,3}|iv|sir|dr)\.?$/i;
+const fullName = (p) => p.split(/\s+/).filter(Boolean).length >= 2;
+const authorsCache = new Map();
+function splitAuthors(s) {
+  const str = String(s || '').replace(/\s*\([^)]*\)/g, '').trim();
+  if (authorsCache.has(str)) return authorsCache.get(str);
+  let parts = str.split(/\s*,\s*/).map((p) => p.replace(/(\p{L}{3,})\.$/u, '$1')).filter(Boolean);
+  if (parts.length > 1 && !parts.every(fullName)) {
+    const rest = parts.slice(1).filter((p) => !AUTHOR_TITLES.test(p));
+    parts = [rest.length === 1 && !fullName(parts[0]) ? `${rest[0]} ${parts[0]}` : parts[0]];
+  }
+  const out = parts.flatMap((p) => {
+    const sub = p.split(/\s+(?:y|and|&)\s+|\s*&\s*/);
+    return sub.length > 1 && sub.every(fullName) ? sub : [p];
+  }).map((x) => x.trim()).filter(Boolean);
+  authorsCache.set(str, out);
+  return out;
+}
+const keyCache = new Map();
+const authorKey = (name) => {
+  let k = keyCache.get(name);
+  if (k === undefined) { k = searchText(name); keyCache.set(name, k); }
+  return k;
+};
+const authorKeysOf = (b) => splitAuthors(b.author).map(authorKey);
+const byAuthor = (name) => { const k = authorKey(name); return (b) => authorKeysOf(b).includes(k); };
+const fmtAvg = (n) => n.toLocaleString('es', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+// Escritores de la biblioteca con sus cifras
+function libraryAuthors() {
+  const map = new Map();
+  books.forEach((b) => splitAuthors(b.author).forEach((n) => {
+    const k = authorKey(n);
+    if (!k) return;
+    if (!map.has(k)) map.set(k, { key: k, name: n, books: [] });
+    map.get(k).books.push(b);
+  }));
+  for (const a of map.values()) {
+    a.read = a.books.filter((b) => b.status === 'read');
+    const rated = a.read.filter((b) => b.rating);
+    a.rated = rated.length;
+    a.avg = rated.length ? rated.reduce((s, b) => s + b.rating, 0) / rated.length : null;
+    a.todo = a.books.filter((b) => b.status !== 'read').length;
+  }
+  return map;
+}
+
+let authorSort = 'avg';
+const AUTHOR_SORTS = {
+  // Nota media (y, a igualdad, el que tenga más libros valorados)
+  avg: (a, b) => (b.avg ?? -1) - (a.avg ?? -1) || b.rated - a.rated || b.read.length - a.read.length || collator.compare(a.name, b.name),
+  count: (a, b) => b.read.length - a.read.length || (b.avg ?? -1) - (a.avg ?? -1) || collator.compare(a.name, b.name),
+  name: (a, b) => collator.compare(a.name, b.name),
+};
+// Ranking por nota media: solo escritores de los que has leído algo
+function authorRanking() {
+  return [...libraryAuthors().values()].filter((a) => a.read.length).sort(AUTHOR_SORTS.avg);
+}
+
+// Escritores guardados (en la cuenta, como las categorías favoritas)
+const FAV_AUTHORS_KEY = 'fav-authors';
+const favAuthors = () => loadList(FAV_AUTHORS_KEY) || [];
+const isFavAuthor = (name) => favAuthors().some((n) => authorKey(n) === authorKey(name));
+function toggleFavAuthor(name) {
+  const list = isFavAuthor(name) ? favAuthors().filter((n) => authorKey(n) !== authorKey(name)) : [...favAuthors(), name];
+  if (list.length) localStorage.setItem(FAV_AUTHORS_KEY, JSON.stringify(list));
+  else localStorage.removeItem(FAV_AUTHORS_KEY);
+  db.auth.updateUser({ data: { fav_authors: list } }).then(({ error }) => { if (error) console.error(error); });
+  renderAuthorsView();
+  renderCatalog(); // «Para ti» tiene en cuenta a tus escritores
+  if (authorDialog.open) renderAuthorDialog();
+}
+function applyFavAuthorsFromUser(user) {
+  const saved = user?.user_metadata?.fav_authors;
+  if (!Array.isArray(saved)) return;
+  if (saved.length) localStorage.setItem(FAV_AUTHORS_KEY, JSON.stringify(saved));
+  else localStorage.removeItem(FAV_AUTHORS_KEY);
+}
+
+const initialsOf = (name) => name.split(/\s+/).filter((w) => /\p{L}/u.test(w[0] || '')).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+
+// Fila de escritor (mismo estilo que Ajustes)
+function authorRow(name, { stats = null, rank = 0, meta = '', olKey = null } = {}) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'setting author-row';
+  const badge = document.createElement('span');
+  badge.className = `author-badge${rank ? ` is-rank${rank <= 3 ? ` rank-${rank}` : ''}` : ''}`;
+  badge.textContent = rank || initialsOf(name);
+  const info = document.createElement('span');
+  info.className = 'author-info';
+  const n = document.createElement('span');
+  n.className = 'author-name';
+  n.textContent = name;
+  const m = document.createElement('span');
+  m.className = 'author-meta';
+  m.textContent = meta || (stats
+    ? [
+      stats.read.length ? `${stats.read.length} ${stats.read.length === 1 ? 'leído' : 'leídos'}` : '',
+      stats.todo ? `${stats.todo} por leer` : '',
+    ].filter(Boolean).join(' · ') || 'En tu biblioteca'
+    : '');
+  info.append(n, m);
+  row.append(badge, info);
+  if (stats?.avg != null) {
+    const s = document.createElement('span');
+    s.className = 'author-score';
+    s.textContent = `★ ${fmtAvg(stats.avg)}`;
+    s.title = `Nota media de ${stats.rated} ${stats.rated === 1 ? 'libro' : 'libros'}`;
+    row.appendChild(s);
+  } else if (stats && stats.read.length) {
+    const s = document.createElement('span');
+    s.className = 'author-score is-empty';
+    s.textContent = 'sin nota';
+    row.appendChild(s);
+  }
+  if (isFavAuthor(name)) {
+    const h = document.createElement('span');
+    h.className = 'author-heart';
+    h.textContent = '♥';
+    h.setAttribute('aria-label', 'Guardado');
+    row.appendChild(h);
+  }
+  row.insertAdjacentHTML('beforeend', CHEVRON_RIGHT_SVG);
+  row.addEventListener('click', () => openAuthor(name, olKey));
+  return row;
+}
+const CHEVRON_RIGHT_SVG = '<svg viewBox="0 0 24 24" class="setting-chevron author-chevron" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+
+function renderAuthorsView() {
+  if ($('explore-authors').hidden) return;
+  const lib = libraryAuthors();
+  const ranking = authorRanking();
+  const rankOf = (name) => ranking.findIndex((a) => a.key === authorKey(name)) + 1;
+
+  // Guardados: ordenados por tu ranking (los que aún no has leído, al final)
+  const favs = favAuthors().slice().sort((x, y) => (rankOf(x) || 999) - (rankOf(y) || 999) || collator.compare(x, y));
+  const favWrap = $('fav-authors');
+  favWrap.innerHTML = '';
+  favs.forEach((name) => favWrap.appendChild(authorRow(name, { stats: lib.get(authorKey(name)), rank: rankOf(name) })));
+  favWrap.hidden = !favs.length;
+  $('fav-authors-empty').hidden = favs.length > 0;
+
+  // Ranking
+  const list = [...ranking].sort(AUTHOR_SORTS[authorSort]);
+  const rankWrap = $('author-ranking');
+  rankWrap.innerHTML = '';
+  list.forEach((a) => rankWrap.appendChild(authorRow(a.name, { stats: a, rank: rankOf(a.name) })));
+  rankWrap.hidden = !list.length;
+  $('author-ranking-empty').hidden = list.length > 0;
+  $('author-sort').hidden = list.length < 2;
+}
+
+document.querySelectorAll('#author-sort .segment').forEach((seg) => {
+  seg.addEventListener('click', () => {
+    authorSort = seg.dataset.sort;
+    document.querySelectorAll('#author-sort .segment').forEach((s) => s.classList.toggle('is-active', s === seg));
+    renderAuthorsView();
+  });
+});
+
+// Libros / Autores en Explorar
+function setExploreMode(mode) {
+  document.querySelectorAll('#explore-modes .segment').forEach((s) => {
+    const on = s.dataset.mode === mode;
+    s.classList.toggle('is-active', on);
+    s.setAttribute('aria-selected', String(on));
+  });
+  $('explore-books').hidden = mode !== 'books';
+  $('explore-authors').hidden = mode !== 'authors';
+  renderAuthorsView();
+}
+document.querySelectorAll('#explore-modes .segment').forEach((s) => s.addEventListener('click', () => setExploreMode(s.dataset.mode)));
+
+// Buscar escritores: los que ya conoces (biblioteca y Explorar) y, además, en Open Library
+let authorSearchTimer = null;
+let authorSearchReq = 0;
+$('author-search').addEventListener('input', () => {
+  clearTimeout(authorSearchTimer);
+  authorSearchTimer = setTimeout(runAuthorSearch, 300);
+});
+async function runAuthorSearch() {
+  const q = $('author-search').value.trim();
+  const sec = $('author-results-sec');
+  const wrap = $('author-results');
+  const status = $('author-results-status');
+  const req = ++authorSearchReq;
+  if (q.length < 2) { sec.hidden = true; return; }
+  sec.hidden = false;
+  wrap.innerHTML = '';
+  const words = searchText(q).split(' ');
+  const lib = libraryAuthors();
+  const known = new Map();
+  [...books, ...catalog].forEach((b) => splitAuthors(b.author).forEach((n) => { if (!known.has(authorKey(n))) known.set(authorKey(n), n); }));
+  const local = [...known.entries()].filter(([k]) => words.every((w) => k.includes(w))).slice(0, 8);
+  local.forEach(([k, name]) => {
+    const inCatalog = catalog.filter(byAuthor(name)).length;
+    wrap.appendChild(authorRow(name, lib.get(k)
+      ? { stats: lib.get(k) }
+      : { meta: `${inCatalog} ${inCatalog === 1 ? 'libro' : 'libros'} en Explorar` }));
+  });
+  wrap.hidden = !local.length;
+  status.textContent = 'Buscando en Open Library…';
+  status.hidden = false;
+  try {
+    const res = await fetch(`https://openlibrary.org/search/authors.json?q=${encodeURIComponent(q)}&limit=8`);
+    const data = await res.json();
+    if (req !== authorSearchReq) return;
+    // Una sola ficha por nombre (Open Library a veces tiene duplicados): la que tiene más obras
+    const byName = new Map();
+    (data.docs || []).filter((d) => d.name && !known.has(authorKey(d.name)) && (d.work_count || 0) > 1).forEach((d) => {
+      const prev = byName.get(authorKey(d.name));
+      if (!prev || (d.work_count || 0) > (prev.work_count || 0)) byName.set(authorKey(d.name), d);
+    });
+    const extra = [...byName.values()].sort((a, b) => (b.work_count || 0) - (a.work_count || 0)).slice(0, 6);
+    extra.forEach((d) => wrap.appendChild(authorRow(d.name, {
+      olKey: d.key,
+      meta: [`${d.work_count} obras`, d.top_work ? `«${d.top_work}»` : ''].filter(Boolean).join(' · '),
+    })));
+    wrap.hidden = !wrap.children.length;
+    status.hidden = Boolean(wrap.children.length);
+    status.textContent = 'No he encontrado a ningún escritor con ese nombre.';
+  } catch (err) {
+    if (req !== authorSearchReq) return;
+    status.textContent = local.length ? '' : 'No se pudo buscar en Open Library. Revisa la conexión.';
+    status.hidden = !status.textContent;
+  }
+}
+
+// ---------- Ficha de un escritor ----------
+const authorDialog = $('author-dialog');
+let currentAuthor = null;      // { name, olKey }
+let authorFilter = 'mine';
+const authorWorksCache = new Map(); // libros de Open Library por escritor
+
+function openAuthor(name, olKey = null) {
+  currentAuthor = { name, olKey };
+  const mine = books.filter(byAuthor(name)).length;
+  authorFilter = mine ? 'mine' : 'discover';
+  renderAuthorDialog();
+  loadAuthorPhoto();
+  if (!authorDialog.open) authorDialog.showModal();
+  authorDialog.scrollTop = 0;
+}
+
+function renderAuthorDialog() {
+  if (!currentAuthor) return;
+  const { name } = currentAuthor;
+  const stats = libraryAuthors().get(authorKey(name));
+  const ranking = authorRanking();
+  const pos = ranking.findIndex((a) => a.key === authorKey(name)) + 1;
+  $('author-name').textContent = name;
+  $('author-initials').textContent = initialsOf(name);
+  $('author-rank').textContent = pos === 1 && stats?.avg != null
+    ? '⭐ Tu escritor favorito'
+    : pos ? `Nº ${pos} de tu ranking` : 'Aún no has leído nada suyo';
+  const fav = isFavAuthor(name);
+  const save = $('btn-author-save');
+  save.textContent = fav ? '♥ Guardado' : '♡ Guardar escritor';
+  save.setAttribute('aria-pressed', String(fav));
+  save.classList.toggle('is-saved', fav);
+  $('author-read').textContent = stats ? stats.read.length : 0;
+  $('author-avg').textContent = stats?.avg != null ? `★ ${fmtAvg(stats.avg)}` : '—';
+  $('author-pending').textContent = stats ? stats.todo : 0;
+  document.querySelectorAll('#author-filter .segment').forEach((s) => s.classList.toggle('is-active', s.dataset.filter === authorFilter));
+  renderAuthorBooks();
+}
+
+async function renderAuthorBooks() {
+  const { name } = currentAuthor;
+  const grid = $('author-books');
+  const empty = $('author-books-empty');
+  grid.innerHTML = '';
+  empty.hidden = true;
+  const mine = books.filter(byAuthor(name));
+  const show = (list, onClick, emptyText) => {
+    list.forEach((b) => grid.appendChild(createBookCard(b, () => onClick(b))));
+    empty.textContent = emptyText;
+    empty.hidden = list.length > 0;
+  };
+  if (authorFilter === 'mine') return show(mine, openDetailDialog, 'Aún no tienes ningún libro suyo. Mira en «Descubrir».');
+  if (authorFilter === 'read') return show(mine.filter((b) => b.status === 'read').sort((a, b) => (b.rating || 0) - (a.rating || 0)), openDetailDialog, 'Todavía no has leído ningún libro suyo.');
+  if (authorFilter === 'todo') return show(mine.filter((b) => b.status !== 'read'), openDetailDialog, 'No tienes libros suyos pendientes.');
+
+  // Descubrir: los de Explorar que no tienes y, además, los de Open Library
+  const fromCatalog = catalog.filter(byAuthor(name)).filter((c) => !isInLibrary(c));
+  show(fromCatalog, openCatalogDialog, '');
+  const k = authorKey(name);
+  if (!authorWorksCache.has(k)) {
+    empty.textContent = 'Buscando más libros suyos…';
+    empty.hidden = false;
+    try {
+      const fields = 'key,title,author_name,cover_i,number_of_pages_median,editions,editions.title,editions.cover_i,editions.language,editions.number_of_pages';
+      const res = await fetch(`https://openlibrary.org/search.json?author=${encodeURIComponent(name)}&lang=es&limit=30&sort=editions&fields=${fields}`);
+      const data = await res.json();
+      // Edición en castellano si la hay; si no, el título y la portada originales (no una edición en otro idioma)
+      authorWorksCache.set(k, (data.docs || []).filter((d) => (d.author_name || []).some((n) => authorKey(n) === k)).map((d) => {
+        const ed = d.editions?.docs?.[0];
+        const spa = Boolean(ed && (ed.language || []).includes('spa'));
+        const cover = (spa && ed.cover_i) || d.cover_i;
+        return {
+          ...splitSeries((spa && ed.title) || d.title || ''),
+          author: name,
+          cover_url: cover ? `https://covers.openlibrary.org/b/id/${cover}-L.jpg` : null,
+          total_pages: (spa && ed.number_of_pages) || d.number_of_pages_median || null,
+        };
+      }));
+    } catch (err) {
+      console.error(err);
+      authorWorksCache.set(k, null);
+    }
+    if (currentAuthor?.name !== name || authorFilter !== 'discover') return;
+  }
+  const works = authorWorksCache.get(k);
+  const seen = [...books, ...fromCatalog];
+  const extra = (works || []).filter((w) => w.cover_url && !seen.some((b) => sameBook(b, w)))
+    .filter((w, i, arr) => arr.findIndex((x) => searchText(x.title) === searchText(w.title)) === i)
+    .slice(0, 18);
+  extra.forEach((w) => grid.appendChild(createBookCard(w, () => openCatalogDialog({ ...w, category: null }))));
+  const total = fromCatalog.length + extra.length;
+  empty.textContent = works === null && !total
+    ? 'No se pudo buscar en Open Library. Revisa la conexión.'
+    : 'No he encontrado más libros suyos que no tengas.';
+  empty.hidden = total > 0;
+}
+
+document.querySelectorAll('#author-filter .segment').forEach((seg) => {
+  seg.addEventListener('click', () => {
+    authorFilter = seg.dataset.filter;
+    document.querySelectorAll('#author-filter .segment').forEach((s) => s.classList.toggle('is-active', s === seg));
+    renderAuthorBooks();
+  });
+});
+$('btn-author-save').addEventListener('click', () => { if (currentAuthor) toggleFavAuthor(currentAuthor.name); });
+$('btn-close-author').addEventListener('click', () => authorDialog.close());
+
+// Foto del escritor (Open Library); si no hay, se quedan sus iniciales
+async function loadAuthorPhoto() {
+  const img = $('author-img');
+  img.hidden = true;
+  img.removeAttribute('src');
+  const name = currentAuthor.name;
+  let key = currentAuthor.olKey;
+  try {
+    if (!key) {
+      const res = await fetch(`https://openlibrary.org/search/authors.json?q=${encodeURIComponent(name)}&limit=1`);
+      const d = (await res.json()).docs?.[0];
+      if (d && authorKey(d.name) === authorKey(name)) key = d.key;
+    }
+  } catch { /* sin foto */ }
+  if (!key || currentAuthor?.name !== name) return;
+  img.onload = () => { if (img.naturalWidth > 10) img.hidden = false; };
+  img.onerror = () => { img.hidden = true; };
+  img.src = `https://covers.openlibrary.org/a/olid/${key}-M.jpg?default=false`;
+}
 
 // ---------- Inicio ----------
 const initial = location.hash.slice(1);

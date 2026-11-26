@@ -122,6 +122,11 @@
       </section>
 
       <section class="view" id="view-explore" aria-label="Explorar">
+        <div class="segmented explore-modes" id="explore-modes" role="tablist" aria-label="Qué explorar">
+          <button role="tab" class="segment is-active" data-mode="books" aria-selected="true">Libros</button>
+          <button role="tab" class="segment" data-mode="authors" aria-selected="false">Autores</button>
+        </div>
+        <div id="explore-books">
         <div class="toolbar">
           <button type="button" class="chip" data-sort-view="explore">
             <svg viewBox="0 0 24 24"><path d="M4 7h10M4 12h7M4 17h4M17 5v14M14 16l3 3 3-3"/></svg>
@@ -145,6 +150,40 @@
         </section>
         <div id="catalog"></div>
         <p class="empty" id="catalog-empty" hidden></p>
+        </div>
+
+        <!-- Autores: buscar escritores, guardarlos y tu ranking según la nota media que les das -->
+        <div id="explore-authors" hidden>
+          <div class="lookup-bar author-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
+            <input type="search" id="author-search" placeholder="Busca un escritor…" autocomplete="off" enterkeyhint="search" aria-label="Buscar escritor">
+          </div>
+          <section class="author-block" id="author-results-sec" hidden>
+            <h3 class="settings-title">Resultados</h3>
+            <div class="settings author-list" id="author-results"></div>
+            <p class="muted author-hint" id="author-results-status" hidden></p>
+          </section>
+
+          <section class="author-block" id="fav-authors-sec">
+            <h3 class="settings-title">Mis escritores guardados</h3>
+            <div class="settings author-list" id="fav-authors"></div>
+            <p class="muted author-empty" id="fav-authors-empty">Busca un escritor y pulsa ♡ para guardarlo aquí.</p>
+          </section>
+
+          <section class="author-block">
+            <div class="author-block-head">
+              <h3 class="settings-title">Tu ranking</h3>
+            </div>
+            <p class="muted author-hint">Según la nota media que has dado a los libros que has leído de cada uno.</p>
+            <div class="segmented author-sort" id="author-sort" role="tablist" aria-label="Ordenar ranking">
+              <button role="tab" class="segment is-active" data-sort="avg">Nota media</button>
+              <button role="tab" class="segment" data-sort="count">Más leídos</button>
+              <button role="tab" class="segment" data-sort="name">A–Z</button>
+            </div>
+            <div class="settings author-list" id="author-ranking"></div>
+            <p class="muted author-empty" id="author-ranking-empty" hidden>Cuando marques libros como leídos y les pongas nota, aquí verás a tus escritores favoritos.</p>
+          </section>
+        </div>
       </section>
 
       <section class="view" id="view-reading" aria-label="Lectura">
@@ -727,6 +766,41 @@
 
       <button type="button" class="btn btn-primary btn-block" id="btn-detail-read">Leer ahora</button>
       <button type="button" class="link-btn detail-delete" id="btn-detail-delete">Eliminar de mi biblioteca</button>
+    </div>
+  </dialog>
+
+  <!-- Ficha de un escritor -->
+  <dialog class="sheet detail-sheet" id="author-dialog">
+    <div class="sheet-body">
+      <div class="detail-hero author-hero">
+        <button type="button" class="icon-btn detail-close" id="btn-close-author" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+        <div class="detail-top">
+          <div class="author-photo" id="author-photo"><span id="author-initials"></span><img id="author-img" alt="" hidden></div>
+          <h2 id="author-name"></h2>
+          <p class="muted" id="author-rank"></p>
+          <button type="button" class="btn btn-secondary btn-small author-save" id="btn-author-save" aria-pressed="false">♡ Guardar escritor</button>
+        </div>
+      </div>
+
+      <div class="stats author-stats">
+        <div class="stat"><strong id="author-read">0</strong><span>Leídos</span></div>
+        <div class="stat"><strong id="author-avg">—</strong><span>Tu nota media</span></div>
+        <div class="stat"><strong id="author-pending">0</strong><span>Por leer</span></div>
+      </div>
+
+      <section class="detail-group">
+        <h3 class="settings-title">Sus libros</h3>
+        <div class="segmented author-filter" id="author-filter" role="tablist" aria-label="Filtrar sus libros">
+          <button role="tab" class="segment is-active" data-filter="mine">Míos</button>
+          <button role="tab" class="segment" data-filter="read">Leídos</button>
+          <button role="tab" class="segment" data-filter="todo">Por leer</button>
+          <button role="tab" class="segment" data-filter="discover">Descubrir</button>
+        </div>
+        <div class="book-grid author-books" id="author-books"></div>
+        <p class="muted author-empty" id="author-books-empty" hidden></p>
+      </section>
     </div>
   </dialog>
 
