@@ -104,6 +104,7 @@ db.auth.onAuthStateChange((event, session) => {
       applyChallengeFromUser(session.user);
       applyFavoritesFromUser(session.user);
       applyFavAuthorsFromUser(session.user);
+      applyGiftsFromUser(session.user);
     }, 0);
   }
 });
@@ -720,11 +721,15 @@ function placeTabIndicator() {
 window.addEventListener('resize', placeTabIndicator);
 document.fonts?.ready.then(placeTabIndicator); // al cargar la fuente cambia el ancho de los nombres
 
-function goTo(view) {
+function goTo(view, { animate = true } = {}) {
+  const changed = view !== currentView;
   currentView = view;
   document.body.dataset.view = view; // p. ej. el botón + solo se ve en la Biblioteca
   document.querySelectorAll('.view').forEach((v) => {
-    v.classList.toggle('is-active', v.id === `view-${view}`);
+    const on = v.id === `view-${view}`;
+    v.classList.toggle('is-active', on);
+    // Animación de entrada solo al cambiar con los botones (al deslizar, la vista ya llega a su sitio)
+    v.classList.toggle('is-entering', on && animate && changed);
   });
   const tabs = [...document.querySelectorAll('.tabbar .tab')];
   tabs.forEach((t) => t.classList.toggle('is-active', t.dataset.goto === view));
@@ -802,12 +807,10 @@ function endDrag(commit) {
   const finish = () => {
     if (done) return;
     done = true;
-    document.body.dataset.swipe = 'drag'; // sin la animación de entrada: la vista ya está en su sitio
     resetPeek(d.peek);
     d.cur.removeAttribute('style');
-    if (commit) goTo(d.target);
+    if (commit) goTo(d.target, { animate: false }); // sin animación de entrada: la vista ya está en su sitio
     document.body.classList.remove('is-swiping');
-    requestAnimationFrame(() => { delete document.body.dataset.swipe; });
   };
   d.cur.addEventListener('transitionend', finish, { once: true });
   setTimeout(finish, 340);
@@ -3544,6 +3547,7 @@ function renderWardrobe() {
 // Avisa (una vez) cuando se desbloquea un accesorio y se lo pone
 function checkAchievements() {
   if (!$('wardrobe')) return;
+  checkGifts();
   renderWardrobe();
   if (!dataReady.books || !dataReady.sessions || !dataReady.quotes) return;
   const unlocked = unlockedIds();
@@ -3560,6 +3564,100 @@ function checkAchievements() {
       action: { label: 'Ver armario', run: () => goTo('profile') },
     }), 2600);
   }
+}
+
+// ---------- Regalos de lectura ----------
+// Regalos de verdad por libros terminados (en total, no solo este año). Se canjean tocándolos.
+const GIFTS = [
+  { at: 1, icon: '📖', name: 'Un libro nuevo', desc: 'El que tú elijas' },
+  { at: 5, icon: '🕯️', name: 'Rincón de lectura', desc: 'Manta, vela y un marcapáginas bonito' },
+  { at: 10, icon: '📚', name: 'Una saga completa', desc: 'La que tú elijas' },
+  { at: 25, icon: '💆', name: 'Día de spa', desc: 'Para desconectar entre capítulos' },
+  { at: 50, icon: '📱', name: 'Un e-reader', desc: 'Para llevarte la biblioteca a todas partes' },
+  { at: 75, icon: '🐾', name: 'Escapada con Jack', desc: 'Un fin de semana fuera con Jack (y un libro, claro)' },
+  { at: 100, icon: '✈️', name: 'Viaje todo pagado', desc: '¡El viaje que tú quieras!' },
+];
+const GIFTS_REDEEMED_KEY = 'gifts-redeemed';
+const GIFTS_KNOWN_KEY = 'gifts-known';
+const booksReadTotal = () => books.filter((b) => b.status === 'read').length;
+const redeemedGifts = () => loadList(GIFTS_REDEEMED_KEY) || [];
+
+function toggleGiftRedeemed(at) {
+  const list = redeemedGifts().includes(at) ? redeemedGifts().filter((x) => x !== at) : [...redeemedGifts(), at];
+  localStorage.setItem(GIFTS_REDEEMED_KEY, JSON.stringify(list));
+  db.auth.updateUser({ data: { gifts_redeemed: list } }).then(({ error }) => { if (error) console.error(error); });
+  renderGifts();
+}
+function applyGiftsFromUser(user) {
+  const saved = user?.user_metadata?.gifts_redeemed;
+  if (!Array.isArray(saved)) return;
+  localStorage.setItem(GIFTS_REDEEMED_KEY, JSON.stringify(saved));
+  renderGifts();
+}
+
+function renderGifts() {
+  const wrap = $('gifts');
+  if (!wrap) return;
+  const read = booksReadTotal();
+  const redeemed = redeemedGifts();
+  const next = GIFTS.find((g) => read < g.at);
+  const prevAt = [...GIFTS].reverse().find((g) => read >= g.at)?.at || 0;
+
+  // Progreso hacia el siguiente regalo
+  const nextEl = $('gifts-next');
+  if (next) {
+    const left = next.at - read;
+    nextEl.textContent = `Llevas ${read} ${read === 1 ? 'libro leído' : 'libros leídos'}. ` +
+      `Te ${left === 1 ? 'falta 1 libro' : `faltan ${left} libros`} para: ${next.icon} ${next.name}`;
+    $('gifts-bar-fill').style.width = `${Math.round(((read - prevAt) / (next.at - prevAt)) * 100)}%`;
+  } else {
+    nextEl.textContent = `¡${read} libros leídos! Has conseguido todos los regalos 🎉`;
+    $('gifts-bar-fill').style.width = '100%';
+  }
+
+  wrap.innerHTML = '';
+  GIFTS.forEach((g) => {
+    const open = read >= g.at;
+    const done = redeemed.includes(g.at);
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = `wardrobe-item gift-item${open ? '' : ' is-locked'}${done ? ' is-redeemed' : open ? ' is-ready' : ''}`;
+    tile.disabled = !open;
+    tile.setAttribute('aria-pressed', String(done));
+    const at = document.createElement('span');
+    at.className = 'gift-at';
+    at.textContent = g.at === 1 ? '1 libro' : `${g.at} libros`;
+    const icon = document.createElement('span');
+    icon.className = 'wardrobe-icon';
+    icon.textContent = open ? g.icon : '🎁';
+    const name = document.createElement('span');
+    name.className = 'wardrobe-name';
+    name.textContent = g.name;
+    const req = document.createElement('span');
+    req.className = 'wardrobe-req';
+    req.textContent = done ? 'Canjeado ✓' : open ? `${g.desc} · Toca al canjearlo` : `${g.desc} · ${read}/${g.at}`;
+    tile.append(at, icon, name, req);
+    tile.setAttribute('aria-label', `${g.name} (${at.textContent}). ${done ? 'Canjeado' : open ? 'Conseguido, sin canjear' : `Bloqueado: llevas ${read} de ${g.at}`}`);
+    if (open) tile.addEventListener('click', () => toggleGiftRedeemed(g.at));
+    wrap.appendChild(tile);
+  });
+}
+
+// Jack avisa (una vez) cuando se consigue un regalo
+function checkGifts() {
+  renderGifts();
+  if (!dataReady.books) return;
+  const read = booksReadTotal();
+  const won = GIFTS.filter((g) => read >= g.at).map((g) => g.at);
+  const known = loadList(GIFTS_KNOWN_KEY);
+  localStorage.setItem(GIFTS_KNOWN_KEY, JSON.stringify([...new Set([...(known || []), ...won])]));
+  if (!known) return; // primera vez en este dispositivo: sin avisos
+  const fresh = GIFTS.filter((g) => won.includes(g.at) && !known.includes(g.at)).pop();
+  if (!fresh || document.body.classList.contains('pet-hidden')) return;
+  setTimeout(() => petSay({
+    text: `¡Has leído ${fresh.at === 1 ? 'tu primer libro' : `${fresh.at} libros`}! 🎉 Te has ganado un regalo: ${fresh.icon} ${fresh.name}. ${fresh.desc}.`,
+    action: { label: 'Ver regalos', run: () => { goTo('profile'); setTimeout(() => $('gifts').scrollIntoView({ behavior: 'smooth', block: 'center' }), 120); } },
+  }), 3200);
 }
 
 // ---------- Recomendaciones en Explorar ----------
