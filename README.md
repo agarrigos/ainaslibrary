@@ -16,6 +16,7 @@ App web (PWA) para gestionar una biblioteca personal. Frontend estático (HTML/C
    - [`supabase/sagas.sql`](supabase/sagas.sql) – saga y tomo de los libros de Explorar (para «Agrupar por: Saga»)
 3. **Desactivar registros públicos** (para que solo entre Aina): *Authentication* → *Sign In / Providers* → desactiva *Allow new users to sign up*.
 4. **Crear el usuario de Aina:** *Authentication* → *Users* → *Add user* → *Create new user*. Pon email y contraseña y marca *Auto Confirm User*. Después, para entrar con nombre de usuario en vez de correo, rellena y ejecuta [`supabase/usuario.sql`](supabase/usuario.sql).
+   - [`supabase/nuevo-usuario.sql`](supabase/nuevo-usuario.sql) – crear un usuario nuevo con la contraseña que quieras
 5. **Conectar la app:** en *Project Settings* → *API* copia la *Project URL* y la clave *anon public* en [`config.js`](config.js).
 
 ## Probar en local
@@ -37,4 +38,5 @@ Abre `index.html` en el navegador, o usa la extensión *Live Server* de VS Code.
 - `supabase/reading-sessions.sql` – tabla `reading_sessions` (temporizador de Lectura)
 - `supabase/mejoras.sql` – columnas de progreso, saga y categoría, «Lo tengo» (`owned`), estado «deseado» y tabla `quotes` (citas)
 - `supabase/usuario.sql` – cambia el inicio de sesión de correo a nombre de usuario (se ejecuta una vez, con los valores rellenados)
+- `supabase/nuevo-usuario.sql` – crea un usuario nuevo (nombre de usuario y contraseña) directamente, sin pasar por el panel
 - `supabase/mover-a-explorar.sql` – migración de un solo uso (ya no hace falta en instalaciones nuevas)

@@ -9,6 +9,13 @@ const db = window.supabase.createClient(
   isConfigured ? SUPABASE_ANON_KEY : 'placeholder',
 );
 
+// Felicitación de cumpleaños (ver «Felicitación de cumpleaños» más abajo). Se leen aquí, antes de que la app
+// cambie la dirección (#library...) y antes de que llegue la sesión.
+var BIRTHDAY_PREVIEW = location.hash === '#cumple';
+var birthdayOpen = false;
+var birthdayGreetPending = false;
+var birthdayShown = false; // ya salió en esta apertura de la app
+
 const COVER_COLORS = [
   '#b9c7d8', '#efc39b', '#4a4a4c', '#a9c2b3',
   '#ecc5c5', '#bba98a', '#d8cfe6', '#f1e3b5',
@@ -80,6 +87,7 @@ db.auth.onAuthStateChange((event, session) => {
     clearDataCache(); // al cerrar sesión no se dejan sus datos en el móvil
     renderSessions();
     petGreeted = false;
+    birthdayShown = false; // al volver a entrar, se vuelve a felicitar
     currentUser = null;
     setAvatar(null);
     avatarStatus('');
@@ -88,6 +96,7 @@ db.auth.onAuthStateChange((event, session) => {
   }
   $('profile-email').textContent = displayName(session.user);
   showScreen('app');
+  maybeShowBirthday(session.user);
   if (userId !== currentUserId) {
     currentUserId = userId;
     // Recién iniciada la sesión (no al reabrir la app con la sesión ya guardada)
@@ -707,14 +716,21 @@ let currentView = null;
 // El fondo resaltado de la barra inferior se desliza hasta la pestaña activa (como Instagram)
 // y se adapta al tamaño de cada opción: lo que ocupan su icono y su nombre, más un margen.
 // (Usa getElementById/querySelector porque se llama antes de que existan otras constantes.)
+// Posición y ancho de la sombra bajo una pestaña
+function tabIndicatorBox(tab) {
+  const content = Math.max(...[...tab.children].map((el) => el.getBoundingClientRect().width));
+  const w = Math.min(tab.offsetWidth - 8, content + 28);
+  return { x: tab.offsetLeft + (tab.offsetWidth - w) / 2, w };
+}
+function setTabIndicator(tabbar, { x, w }) {
+  tabbar.style.setProperty('--ind-w', `${Math.round(w * 10) / 10}px`);
+  tabbar.style.setProperty('--ind-x', `${Math.round(x * 10) / 10}px`);
+}
 function placeTabIndicator() {
   const tabbar = document.querySelector('.tabbar');
   const tab = tabbar?.querySelector('.tab.is-active');
   if (!tab) return;
-  const content = Math.max(...[...tab.children].map((el) => el.getBoundingClientRect().width));
-  const width = Math.min(tab.offsetWidth - 8, content + 28);
-  tabbar.style.setProperty('--ind-w', `${Math.round(width)}px`);
-  tabbar.style.setProperty('--ind-x', `${Math.round(tab.offsetLeft + (tab.offsetWidth - width) / 2)}px`);
+  setTabIndicator(tabbar, tabIndicatorBox(tab));
   // La primera vez se coloca sin animación
   if (!tabbar.classList.contains('is-ready')) requestAnimationFrame(() => requestAnimationFrame(() => tabbar.classList.add('is-ready')));
 }
@@ -788,7 +804,17 @@ function renderDrag() {
   }
   drag.cur.style.transform = `translate3d(${dx}px, 0, 0)`;
   if (drag.peek) drag.peek.style.transform = `translate3d(${dx + (dir > 0 ? drag.width : -drag.width)}px, 0, 0)`;
+  // La sombra de la barra de abajo va con el dedo, de una pestaña a la otra
+  if (target) {
+    const p = Math.min(1, Math.abs(dx) / drag.width);
+    const a = tabBoxOf(currentView);
+    const b = tabBoxOf(target);
+    setTabIndicator(drag.tabbar, { x: a.x + (b.x - a.x) * p, w: a.w + (b.w - a.w) * p });
+  } else {
+    setTabIndicator(drag.tabbar, tabBoxOf(currentView));
+  }
 }
+const tabBoxOf = (view) => tabIndicatorBox(document.querySelector(`.tabbar .tab[data-goto="${view}"]`));
 
 function endDrag(commit) {
   const d = drag;
@@ -796,6 +822,13 @@ function endDrag(commit) {
   if (d.raf) cancelAnimationFrame(d.raf);
   const dir = d.dx < 0 ? 1 : -1;
   [d.cur, d.peek].forEach((el) => { if (el) el.style.transition = SWIPE_EASE; });
+  // La sombra y el color de la pestaña llegan a la vez que la pantalla (misma duración y curva)
+  d.tabbar.classList.remove('is-dragging');
+  d.tabbar.classList.add('is-settling');
+  const goal = commit ? d.target : currentView;
+  setTabIndicator(d.tabbar, tabBoxOf(goal));
+  d.tabbar.querySelectorAll('.tab').forEach((t) => t.classList.toggle('is-active', t.dataset.goto === goal));
+  setTimeout(() => d.tabbar.classList.remove('is-settling'), 320);
   if (commit) {
     d.cur.style.transform = `translate3d(${-dir * d.width}px, 0, 0)`;
     d.peek.style.transform = 'translate3d(0, 0, 0)';
@@ -838,6 +871,8 @@ document.addEventListener('touchmove', (e) => {
     drag.cur = $(`view-${currentView}`);
     drag.width = document.querySelector('.content').getBoundingClientRect().width;
     document.body.classList.add('is-swiping');
+    drag.tabbar = document.querySelector('.tabbar');
+    drag.tabbar.classList.add('is-dragging');
     return;
   }
   e.preventDefault();
@@ -2518,11 +2553,14 @@ const NIGHT_WAKE_MESSAGES = [
 
 function greetOnce() {
   if (petGreeted) return;
+  // Con la felicitación de cumpleaños en pantalla, Jack (y su guía) esperan a que se soplen las velas
+  if (birthdayOpen) { birthdayGreetPending = true; return; }
   // Guía de Jack (de momento siempre, para revisarla; ver TOUR_MODE)
-  if (shouldShowTour()) {
+  const tour = tourToShow();
+  if (tour) {
     petGreeted = true;
     petIntroPending = false;
-    setTimeout(startTour, 900);
+    setTimeout(() => startTour(tour), 900);
     return;
   }
   if (document.body.classList.contains('pet-hidden')) return;
@@ -2538,17 +2576,75 @@ function greetOnce() {
   setTimeout(() => petSay({ text }), 1200);
 }
 
+// ---------- Felicitación de cumpleaños ----------
+// Sale una vez al entrar la cuenta BIRTHDAY_USER, hasta que sopla las velas (se guarda en la cuenta:
+// birthday_30). Con #cumple en la dirección se ve siempre, sin marcarla como vista (para probarla).
+var BIRTHDAY_USER = 'aina';
+// BIRTHDAY_MODE:
+//   'always' -> sale siempre al abrir la app, con cualquier cuenta, y no se marca como vista (para probarla)
+//   'once'   -> solo con la cuenta de BIRTHDAY_USER y una única vez (hasta que sopla las velas)
+var BIRTHDAY_MODE = 'always';
+
+function maybeShowBirthday(user) {
+  const isHer = displayName(user).toLowerCase() === BIRTHDAY_USER;
+  const always = BIRTHDAY_MODE === 'always';
+  if (!always && !BIRTHDAY_PREVIEW && (!isHer || user?.user_metadata?.birthday_30)) return;
+  if (birthdayOpen || (always && birthdayShown)) return;
+  birthdayShown = true;
+  const name = displayName(user);
+  $('birthday-name').textContent = (always || BIRTHDAY_PREVIEW) && !isHer ? 'Aina' : name.charAt(0).toUpperCase() + name.slice(1);
+  const el = $('birthday');
+  el.classList.remove('is-blown', 'is-leaving');
+  $('btn-blow').disabled = false;
+  $('birthday-wish').textContent = '';
+  el.hidden = false;
+  birthdayOpen = true;
+  document.body.classList.add('birthday-open');
+  setTimeout(() => $('btn-blow').focus({ preventScroll: true }), 300);
+}
+
+$('btn-blow').addEventListener('click', () => {
+  const el = $('birthday');
+  const btn = $('btn-blow');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  el.classList.add('is-blown');
+  $('birthday-wish').textContent = '✨ ¡Que se cumpla! ✨';
+  setTimeout(launchConfetti, 450);
+  if (!BIRTHDAY_PREVIEW && BIRTHDAY_MODE === 'once') {
+    db.auth.updateUser({ data: { birthday_30: true } })
+      .then(({ data }) => { if (data?.user) currentUser = data.user; })
+      .catch((err) => console.error(err));
+  }
+  // A los 3 segundos se abre la app
+  setTimeout(() => {
+    el.classList.add('is-leaving');
+    setTimeout(() => {
+      el.hidden = true;
+      birthdayOpen = false;
+      document.body.classList.remove('birthday-open');
+      if (BIRTHDAY_PREVIEW) { BIRTHDAY_PREVIEW = false; history.replaceState(null, '', `#${currentView || 'library'}`); }
+      if (birthdayGreetPending) { birthdayGreetPending = false; greetOnce(); }
+    }, 600);
+  }, 3000);
+});
+
 // ---------- Guía de Jack ----------
 // TOUR_MODE:
 //   'always' -> cada vez que se abre la app (para revisarla)
 //   'first'  -> solo la primera vez que se inicia sesión (se guarda en la cuenta: tour_done)
 const TOUR_MODE = 'first';
 
-function shouldShowTour() {
-  if (TOUR_MODE === 'always') return true;
-  return petIntroPending && !currentUser?.user_metadata?.tour_done;
+// Qué guía toca al abrir: 'full' (primera vez), 'news' (ya la vio, pero hay novedades) o ninguna
+function tourToShow() {
+  if (TOUR_MODE === 'always') return 'full';
+  const meta = currentUser?.user_metadata || {};
+  if (!meta.tour_done) return petIntroPending ? 'full' : null;
+  return (meta.tour_version || 1) < TOUR_VERSION ? 'news' : null;
 }
 
+// TOUR_VERSION sube cuando hay novedades: quien ya vio la guía antes ve una vez solo los pasos nuevos (since)
+const TOUR_VERSION = 2;
 const TOUR_STEPS = [
   {
     view: 'library', tab: 'reading', target: null,
@@ -2572,8 +2668,24 @@ const TOUR_STEPS = [
     text: 'Toca una portada para ver su ficha: ahí puedes puntuarlo, apuntar por qué página vas, escribir tu reseña y guardar tus citas favoritas.',
   },
   {
-    view: 'explore', target: '#for-you:not([hidden]), #catalog',
+    view: 'library', tab: 'reading', target: '.tabbar', since: 2,
+    text: 'Para moverte por la app, toca los botones de abajo… ¡o desliza el dedo hacia los lados y pasarás de una pestaña a otra! 👆',
+  },
+  {
+    view: 'library', tab: 'reading', target: '#btn-search', since: 2,
+    text: 'Con la lupa buscas en tu biblioteca y en Explorar por título, autor o saga. Da igual si no pones tildes. 🔍',
+  },
+  {
+    view: 'explore', mode: 'books', target: '#for-you:not([hidden]), #catalog',
     text: 'En Explorar tienes ideas por categorías. En «Para ti» te recomiendo libros según lo que más te gusta. 👃📚',
+  },
+  {
+    view: 'explore', mode: 'authors', target: '#explore-modes', since: 2,
+    text: 'En «Autores» buscas escritores y los guardas. Y te hago un ranking con la nota media que das a sus libros, ¡para que sepas a quién leer después! 🏆',
+  },
+  {
+    view: 'explore', mode: 'books', target: '[data-sort-view="explore"]', since: 2,
+    text: 'Aquí ordenas y filtras los libros. Si eliges «Agrupar por: Saga», verás cada saga con sus tomos en orden. 📚',
   },
   {
     view: 'reading', target: '.timer',
@@ -2589,19 +2701,36 @@ const TOUR_STEPS = [
   },
   {
     view: 'profile', target: '#wardrobe',
-    text: 'Y este es mi armario. Cuando consigas logros desbloquearé accesorios… ¡Yo quiero la corona! 👑',
+    text: 'Este es mi armario. Cuando consigas logros desbloquearé accesorios… ¡Yo quiero la corona! 👑',
+  },
+  {
+    view: 'profile', target: '#gifts', since: 2,
+    text: '¡Y regalos de verdad! Con 1, 5, 10, 25, 50, 75 y 100 libros leídos ganas uno… ¡el de 75 es una escapada conmigo! 🐾 Cuando lo disfrutes, tócalo para marcarlo como canjeado. 🎁',
   },
   {
     view: 'library', tab: 'reading', target: null,
     text: '¡Ya está! Si alguna vez quieres que te lo vuelva a explicar, está en Perfil › Ajustes › «Ver la guía de Jack». Y si me tocas, te diré cosas. ¡A leer! 📚',
   },
 ];
+// Guía corta de novedades: saludo, los pasos nuevos y despedida
+const NEWS_INTRO = {
+  view: 'library', tab: 'reading', target: null, intro: true,
+  text: '¡Guau! 🐾 He estado aprendiendo cosas nuevas para tu biblioteca. ¿Te las enseño?',
+};
+const NEWS_END = {
+  view: 'library', tab: 'reading', target: null,
+  text: '¡Eso es todo! La guía completa sigue en Perfil › Ajustes › «Ver la guía de Jack». ¡A leer! 📚',
+};
+let tourSteps = TOUR_STEPS;
 
 let tourIndex = -1;
 
-function startTour() {
+function startTour(kind = 'full') {
   const el = document.getElementById('tour');
   if (!el || !el.hidden) return;
+  tourSteps = kind === 'news'
+    ? [NEWS_INTRO, ...TOUR_STEPS.filter((s) => (s.since || 1) >= TOUR_VERSION), NEWS_END]
+    : TOUR_STEPS;
   document.querySelectorAll('dialog[open]').forEach((d) => d.close());
   hidePetBubble();
   document.body.classList.add('touring');
@@ -2617,13 +2746,15 @@ function endTour() {
   el.hidden = true;
   document.body.classList.remove('touring', 'tour-intro');
   tourIndex = -1;
+  setExploreMode('books');
   goTo('library');
   setLibraryTab('reading');
   scheduleNap();
-  // Modo 'first': no volver a mostrarla en esta cuenta.
+  // Modo 'first': no volver a mostrarla (ni las novedades ya vistas) en esta cuenta.
   // (En modo 'always' no se guarda, para que las pruebas no la marquen como vista.)
-  if (TOUR_MODE === 'first' && !currentUser?.user_metadata?.tour_done) {
-    db.auth.updateUser({ data: { tour_done: true } })
+  const meta = currentUser?.user_metadata || {};
+  if (TOUR_MODE === 'first' && (!meta.tour_done || (meta.tour_version || 1) < TOUR_VERSION)) {
+    db.auth.updateUser({ data: { tour_done: true, tour_version: TOUR_VERSION } })
       .then(({ data }) => { if (data?.user) currentUser = data.user; })
       .catch((err) => console.error(err));
   }
@@ -2631,18 +2762,19 @@ function endTour() {
 
 function showTourStep(i) {
   tourIndex = i;
-  const step = TOUR_STEPS[i];
+  const step = tourSteps[i];
   if (step.view !== currentView) goTo(step.view);
   if (step.tab && step.tab !== libraryStatus) setLibraryTab(step.tab);
+  if (step.view === 'explore') setExploreMode(step.mode || 'books');
 
   // Primer paso: Jack en grande, en el centro, saludando. Al seguir, vuelve a su sitio.
   document.body.classList.toggle('tour-intro', Boolean(step.intro));
   $('tour-card').classList.toggle('is-intro', Boolean(step.intro));
   $('tour-text').textContent = step.text;
-  $('tour-step').textContent = `${i + 1} de ${TOUR_STEPS.length}`;
+  $('tour-step').textContent = `${i + 1} de ${tourSteps.length}`;
   $('tour-back').hidden = i === 0;
-  $('tour-next').textContent = i === 0 ? '¡Vamos!' : i === TOUR_STEPS.length - 1 ? '¡A leer!' : 'Siguiente';
-  $('tour-skip').hidden = i === TOUR_STEPS.length - 1;
+  $('tour-next').textContent = i === 0 ? '¡Vamos!' : i === tourSteps.length - 1 ? '¡A leer!' : 'Siguiente';
+  $('tour-skip').hidden = i === tourSteps.length - 1;
 
   // Saltito de Jack en cada paso
   pet.classList.remove('is-happy');
@@ -2660,7 +2792,7 @@ function showTourStep(i) {
 // Coloca el foco de luz sobre la zona y el bocadillo donde no la tape
 function positionTour() {
   if (tourIndex < 0) return;
-  const step = TOUR_STEPS[tourIndex];
+  const step = tourSteps[tourIndex];
   const spot = $('tour-spot');
   const card = $('tour-card');
   const target = step.target ? document.querySelector(step.target) : null;
@@ -2690,7 +2822,7 @@ function positionTour() {
 }
 
 $('tour-next').addEventListener('click', () => {
-  if (tourIndex >= TOUR_STEPS.length - 1) endTour();
+  if (tourIndex >= tourSteps.length - 1) endTour();
   else showTourStep(tourIndex + 1);
 });
 $('tour-back').addEventListener('click', () => { if (tourIndex > 0) showTourStep(tourIndex - 1); });

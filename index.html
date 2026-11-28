@@ -57,6 +57,81 @@
     </form>
   </div>
 
+  <!-- Felicitación de cumpleaños (una vez, al entrar) -->
+  <div class="birthday" id="birthday" hidden role="dialog" aria-modal="true" aria-labelledby="birthday-title">
+    <div class="birthday-sparkles" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="birthday-card">
+      <p class="birthday-kicker">🎂 30 años 🎂</p>
+      <h1 class="birthday-title" id="birthday-title">¡Feliz cumpleaños, <span id="birthday-name">Aina</span>!</h1>
+      <p class="birthday-text">¡Holii, muchísimas felicidades! Espero que hayas disfrutado de tu día. He creado esta app para ti, para ayudarte con la lectura. ¡Espero que te guste! Un besito 💛</p>
+
+      <svg class="cake" id="cake" viewBox="0 0 260 250" role="img" aria-label="Pastel de cumpleaños con dos velas, un 3 y un 0">
+        <defs>
+          <radialGradient id="flame-g" cx="50%" cy="68%" r="60%">
+            <stop offset="0" stop-color="#fffbe6"/>
+            <stop offset="0.35" stop-color="#ffd35c"/>
+            <stop offset="0.8" stop-color="#ff8a2a"/>
+            <stop offset="1" stop-color="#ff6a1a" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="glow-g">
+            <stop offset="0" stop-color="#ffd76a" stop-opacity="0.55"/>
+            <stop offset="1" stop-color="#ffd76a" stop-opacity="0"/>
+          </radialGradient>
+          <linearGradient id="candle-g" x1="0" x2="1">
+            <stop offset="0" stop-color="#f7a8c0"/>
+            <stop offset="1" stop-color="#e4789a"/>
+          </linearGradient>
+          <linearGradient id="tier-g" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stop-color="#f6d9c4"/>
+            <stop offset="1" stop-color="#e9bfa1"/>
+          </linearGradient>
+        </defs>
+
+        <!-- Plato -->
+        <ellipse cx="130" cy="232" rx="112" ry="12" fill="rgba(0,0,0,0.12)"/>
+        <ellipse class="plate" cx="130" cy="226" rx="106" ry="11" fill="#fbf7f2"/>
+
+        <!-- Piso de abajo -->
+        <rect x="42" y="160" width="176" height="64" rx="12" fill="url(#tier-g)"/>
+        <path d="M42 172 q0 -12 12 -12 h152 q12 0 12 12 v6 q-8 8 -16 0 q-9 12 -18 0 q-9 10 -18 0 q-9 13 -18 0 q-9 9 -18 0 q-9 12 -18 0 q-9 10 -18 0 q-9 13 -18 0 q-8 8 -16 0 z" fill="#fffaf5"/>
+        <g class="cake-dots">
+          <circle cx="66" cy="200" r="3" fill="#e4789a"/><circle cx="92" cy="208" r="3" fill="#7fb7a4"/>
+          <circle cx="120" cy="198" r="3" fill="#e0a82e"/><circle cx="148" cy="208" r="3" fill="#e4789a"/>
+          <circle cx="174" cy="199" r="3" fill="#7d93b5"/><circle cx="198" cy="207" r="3" fill="#7fb7a4"/>
+        </g>
+
+        <!-- Piso de arriba -->
+        <rect x="72" y="112" width="116" height="52" rx="10" fill="url(#tier-g)"/>
+        <path d="M72 122 q0 -10 10 -10 h96 q10 0 10 10 v5 q-7 7 -14 0 q-8 10 -16 0 q-8 9 -16 0 q-8 11 -16 0 q-8 8 -16 0 q-8 10 -16 0 q-7 7 -12 0 z" fill="#fffaf5"/>
+        <g class="cake-sprinkles">
+          <rect x="88" y="140" width="8" height="3" rx="1.5" fill="#e4789a" transform="rotate(-20 92 141)"/>
+          <rect x="112" y="148" width="8" height="3" rx="1.5" fill="#7d93b5" transform="rotate(25 116 149)"/>
+          <rect x="136" y="139" width="8" height="3" rx="1.5" fill="#e0a82e" transform="rotate(-35 140 140)"/>
+          <rect x="160" y="149" width="8" height="3" rx="1.5" fill="#7fb7a4" transform="rotate(15 164 150)"/>
+        </g>
+
+        <!-- Velas: un 3 y un 0 -->
+        <g class="candle candle-3">
+          <text x="104" y="114" text-anchor="middle" class="candle-num">3</text>
+          <line x1="104" y1="60" x2="104" y2="42" class="wick"/>
+          <circle cx="104" cy="30" r="22" fill="url(#glow-g)" class="glow"/>
+          <path d="M104 18 C 110 27, 112 33, 104 42 C 96 33, 98 27, 104 18 Z" fill="url(#flame-g)" class="flame"/>
+          <g class="smoke"><path d="M104 40 q-5 -8 0 -16 q5 -8 0 -16"/></g>
+        </g>
+        <g class="candle candle-0">
+          <text x="156" y="114" text-anchor="middle" class="candle-num">0</text>
+          <line x1="156" y1="60" x2="156" y2="42" class="wick"/>
+          <circle cx="156" cy="30" r="22" fill="url(#glow-g)" class="glow"/>
+          <path d="M156 18 C 162 27, 164 33, 156 42 C 148 33, 150 27, 156 18 Z" fill="url(#flame-g)" class="flame"/>
+          <g class="smoke"><path d="M156 40 q5 -8 0 -16 q-5 -8 0 -16"/></g>
+        </g>
+      </svg>
+
+      <button type="button" class="btn btn-primary birthday-btn" id="btn-blow">🌬️ ¡Pide un deseo y sopla!</button>
+      <p class="birthday-wish" id="birthday-wish" aria-live="polite"></p>
+    </div>
+  </div>
+
   <div class="app" id="app" hidden>
     <!-- Cabecera -->
     <header class="topbar">
