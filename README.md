@@ -39,4 +39,5 @@ Abre `index.html` en el navegador, o usa la extensión *Live Server* de VS Code.
 - `supabase/mejoras.sql` – columnas de progreso, saga y categoría, «Lo tengo» (`owned`), estado «deseado» y tabla `quotes` (citas)
 - `supabase/usuario.sql` – cambia el inicio de sesión de correo a nombre de usuario (se ejecuta una vez, con los valores rellenados)
 - `supabase/nuevo-usuario.sql` – crea un usuario nuevo (nombre de usuario y contraseña) directamente, sin pasar por el panel
+- `supabase/reiniciar-cuenta.sql` – deja una cuenta como recién creada (vuelve a salir la guía de Jack y, en la de Aina, la felicitación)
 - `supabase/mover-a-explorar.sql` – migración de un solo uso (ya no hace falta en instalaciones nuevas)

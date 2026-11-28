@@ -2583,7 +2583,7 @@ var BIRTHDAY_USER = 'aina';
 // BIRTHDAY_MODE:
 //   'always' -> sale siempre al abrir la app, con cualquier cuenta, y no se marca como vista (para probarla)
 //   'once'   -> solo con la cuenta de BIRTHDAY_USER y una única vez (hasta que sopla las velas)
-var BIRTHDAY_MODE = 'always';
+var BIRTHDAY_MODE = 'once';
 
 function maybeShowBirthday(user) {
   const isHer = displayName(user).toLowerCase() === BIRTHDAY_USER;
